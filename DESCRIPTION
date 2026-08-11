@@ -1,0 +1,22 @@
+Package: dsSBARTClient
+Title: dsSBARTClient client side base functions 
+Version: 0.0.0
+Date: 2026-07-21
+Author: Gospel Ozioma Nnadi
+Authors@R: 
+    c(person(given = "Gospel Ozioma",
+             family = "Nnadi",
+             role = c("aut", "cre", "cph"),
+             email = "gospelozioma.nnadi@univr.it",
+             comment = c(ORCID = "X")),
+      person(given = "et",
+             family = "al",
+             role="ths",
+             email="mdrra-univr@univr.it"))
+Maintainer: Gospel Ozioma Nnadi <gospelozioma.nnadi@univr.it>
+Description: dsSBART - Federated Semi Opbit Bayesian Addictive Regression Tree Learning on DataSHIELD.
+Depends: R (>= 3.5)
+Encoding: UTF-8
+LazyData: true
+License: GPL-3
+RoxygenNote: 7.3.2
