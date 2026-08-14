@@ -153,47 +153,48 @@
 #' @param state_name  base name for this run's per-config server-side state
 #' @export
 ds.semiOPBARTExploreHyperF <- function(conns,
-                                        data.name,
-                                        outcome_col,
-                                        levels,
-                                        x_features,
-                                        w_features,
-                                        test_data.name = NULL,
-                                        n_samp_range = c(500, 1000, 2000),
-                                        n_burn_range = c(500, 1000, 2000),
-                                        n_tree_range = c(50, 100, 200),
-                                        seed_range = c(42, 123, 456),
-                                        k_values = c(1, 2, 3),
-                                        max_configs = NULL,
-                                        nfilter = 5,
-                                        combine_method = c("inverse_variance", "stack"),
-                                        verbose = TRUE,
-                                        state_name = ".semiOPBART_hyper_F") {
-
+                                       data.name,
+                                       outcome_col,
+                                       levels,
+                                       x_features,
+                                       w_features,
+                                       test_data.name = NULL,
+                                       n_samp_range = c(500, 1000, 2000),
+                                       n_burn_range = c(500, 1000, 2000),
+                                       n_tree_range = c(50, 100, 200),
+                                       seed_range = c(42, 123, 456),
+                                       k_values = c(1, 2, 3),
+                                       max_configs = NULL,
+                                       nfilter = 5,
+                                       combine_method = c("inverse_variance", "stack"),
+                                       verbose = TRUE,
+                                       state_name = ".semiOPBART_hyper_F") {
+  
   combine_method <- match.arg(combine_method)
   if (is.null(conns)) conns <- DSI::datashield.connections_find()
   site_names <- names(conns)
-
+  
   param_grid <- expand.grid(
     n_samp = n_samp_range, n_burn = n_burn_range, n_tree = n_tree_range,
     seed = seed_range, k = k_values, stringsAsFactors = FALSE
   )
   param_grid <- .semiOPBART_capConfigs(param_grid, max_configs)
-
+  
   formula_obj        <- stats::as.formula(paste(outcome_col, "~", paste(x_features, collapse = " + ")))
   linear_formula_obj <- stats::as.formula(paste("~", paste(w_features, collapse = " + ")))
-
+  
   if (verbose) message(sprintf("Testing %d configurations for Architecture F across %d sites",
-                                nrow(param_grid), length(site_names)))
-
+                               nrow(param_grid), length(site_names)))
+  
   all_results <- vector("list", nrow(param_grid))
   if (verbose) pb <- txtProgressBar(min = 0, max = nrow(param_grid), style = 3)
-
+  
   for (i in seq_len(nrow(param_grid))) {
     params <- param_grid[i, ]
     if (verbose) setTxtProgressBar(pb, i)
-    config_state <- paste0(state_name, "_config_", i)
-
+    print( paste0(state_name, "_config_", i))
+    config_state <- paste0(state_name, "_config_")
+    
     site_fits <- .semiOPBART_safe(function() {
       ds.semiOPBARTFitF(
         formula = formula_obj, linear_formula = linear_formula_obj,
@@ -203,12 +204,12 @@ ds.semiOPBARTExploreHyperF <- function(conns,
         nfilter = nfilter, state_name = config_state, seed = as.integer(params$seed))
     }, i, "fit (ds.semiOPBARTFitF)")
     if (is.null(site_fits)) next
-
+    
     combined <- .semiOPBART_safe(function() {
       ds.semiOPBARTCombineF(site_fits, combine_method = combine_method)
     }, i, "combine (ds.semiOPBARTCombineF)")
     if (is.null(combined)) next
-
+    
     metrics <- .semiOPBART_naMetrics()
     if (!is.null(test_data.name)) {
       pred_obj <- paste0(config_state, "_pred")
@@ -218,17 +219,17 @@ ds.semiOPBARTExploreHyperF <- function(conns,
           newobj_pred = pred_obj, nfilter = nfilter, datasources = conns,
           seed = as.integer(params$seed))
       }, i, "predict (ds.semiOPBARTPredictF)")
-
+      
       if (!is.null(pred_ok)) {
         eval_res <- .semiOPBART_safe(function() {
           ds.semiOPBARTEvaluate(
             pred_obj = pred_obj, levels = levels, nfilter = nfilter,
-            datasources = conns, label = paste0("F_config_", i))
+            datasources = conns, label = "F_config_")
         }, i, "evaluate (ds.semiOPBARTEvaluate)")
         metrics <- .semiOPBART_evalToMetrics(eval_res, levels)
       }
     }
-
+    
     all_results[[i]] <- data.frame(
       config_id = i, n_samp = as.integer(params$n_samp), n_burn = as.integer(params$n_burn),
       n_tree = as.integer(params$n_tree), seed = as.integer(params$seed), k = params$k,
@@ -239,10 +240,10 @@ ds.semiOPBARTExploreHyperF <- function(conns,
     )
   }
   if (verbose) close(pb)
-
+  
   results_df <- dplyr::bind_rows(all_results)
   if (nrow(results_df) == 0) stop("No configurations completed successfully for Architecture F")
-
+  
   list(results = results_df, architecture = "F",
        best_config = results_df[which.min(results_df$test_mae), ],
        param_grid = param_grid, site_names = site_names)
@@ -275,44 +276,45 @@ ds.semiOPBARTExploreHyperF <- function(conns,
 #' @param state_name  base name for this run's per-config server-side state
 #' @export
 ds.semiOPBARTExploreHyperE <- function(conns,
-                                        data.name,
-                                        outcome_col,
-                                        levels,
-                                        x_features,
-                                        w_features,
-                                        test_data.name = NULL,
-                                        n_samp_range = c(500, 1000, 2000),
-                                        n_burn_range = c(500, 1000, 2000),
-                                        n_tree_range = c(50, 100, 200),
-                                        seed_range = c(42, 123, 456),
-                                        k_values = c(1, 2, 3),
-                                        warmup_burn = NULL,
-                                        max_configs = NULL,
-                                        nfilter = 5,
-                                        verbose = TRUE,
-                                        state_name = ".semiOPBART_hyper_E") {
-
+                                       data.name,
+                                       outcome_col,
+                                       levels,
+                                       x_features,
+                                       w_features,
+                                       test_data.name = NULL,
+                                       n_samp_range = c(500, 1000, 2000),
+                                       n_burn_range = c(500, 1000, 2000),
+                                       n_tree_range = c(50, 100, 200),
+                                       seed_range = c(42, 123, 456),
+                                       k_values = c(1, 2, 3),
+                                       warmup_burn = NULL,
+                                       max_configs = NULL,
+                                       nfilter = 5,
+                                       verbose = TRUE,
+                                       state_name = ".semiOPBART_hyper_E") {
+  
   if (is.null(conns)) conns <- DSI::datashield.connections_find()
   site_names <- names(conns)
-
+  
   param_grid <- expand.grid(
     n_samp = n_samp_range, n_burn = n_burn_range, n_tree = n_tree_range,
     seed = seed_range, k = k_values, stringsAsFactors = FALSE
   )
   param_grid <- .semiOPBART_capConfigs(param_grid, max_configs)
-
+  
   if (verbose) message(sprintf("Testing %d configurations for Architecture E across %d sites",
-                                nrow(param_grid), length(site_names)))
-
+                               nrow(param_grid), length(site_names)))
+  
   all_results <- vector("list", nrow(param_grid))
   if (verbose) pb <- txtProgressBar(min = 0, max = nrow(param_grid), style = 3)
-
+  
   for (i in seq_len(nrow(param_grid))) {
     params <- param_grid[i, ]
     if (verbose) setTxtProgressBar(pb, i)
-    config_state <- paste0(state_name, "_config_", i)
+    print( paste0(state_name, "_config_", i))
+    config_state <- paste0(state_name, "_config_")
     wb <- if (is.null(warmup_burn)) min(50, as.integer(params$n_burn)) else warmup_burn
-
+    
     fit <- .semiOPBART_safe(function() {
       ds.semiOPBARTTrainE(
         data.name = data.name, datasources = conns,
@@ -322,7 +324,7 @@ ds.semiOPBARTExploreHyperE <- function(conns,
         state_name = config_state, seed = as.integer(params$seed))
     }, i, "train (ds.semiOPBARTTrainE)")
     if (is.null(fit)) next
-
+    
     metrics <- .semiOPBART_naMetrics()
     if (!is.null(test_data.name)) {
       pred_obj <- paste0(config_state, "_pred")
@@ -332,17 +334,17 @@ ds.semiOPBARTExploreHyperE <- function(conns,
           prediction_method = "point", nfilter = nfilter, datasources = conns,
           seed = as.integer(params$seed))
       }, i, "predict (ds.semiOPBARTPredictE)")
-
+      
       if (!is.null(pred_ok)) {
         eval_res <- .semiOPBART_safe(function() {
           ds.semiOPBARTEvaluate(
             pred_obj = pred_obj, levels = levels, nfilter = nfilter,
-            datasources = conns, label = paste0("E_config_", i))
+            datasources = conns, label = "E_config_" )
         }, i, "evaluate (ds.semiOPBARTEvaluate)")
         metrics <- .semiOPBART_evalToMetrics(eval_res, levels)
       }
     }
-
+    
     all_results[[i]] <- data.frame(
       config_id = i, n_samp = as.integer(params$n_samp), n_burn = as.integer(params$n_burn),
       n_tree = as.integer(params$n_tree), seed = as.integer(params$seed), k = params$k,
@@ -353,10 +355,10 @@ ds.semiOPBARTExploreHyperE <- function(conns,
     )
   }
   if (verbose) close(pb)
-
+  
   results_df <- dplyr::bind_rows(all_results)
   if (nrow(results_df) == 0) stop("No configurations completed successfully for Architecture E")
-
+  
   list(results = results_df, architecture = "E",
        best_config = results_df[which.min(results_df$test_mae), ],
        param_grid = param_grid, site_names = site_names)
@@ -389,28 +391,28 @@ ds.semiOPBARTExploreHyperE <- function(conns,
 #' @param state_name  base name for this run's per-config server-side state
 #' @export
 ds.semiOPBARTExploreHyperD <- function(conns,
-                                        data.name,
-                                        outcome_col,
-                                        levels,
-                                        x_features,
-                                        w_features,
-                                        test_data.name = NULL,
-                                        n_samp_range = c(500, 1000, 2000),
-                                        n_burn_range = c(500, 1000, 2000),
-                                        n_tree_range = c(50, 100, 200),
-                                        seed_range = c(42, 123, 456),
-                                        k_values = c(1, 2, 3),
-                                        n_swap_range = c(2, 4, 8),
-                                        warmup_burn = NULL,
-                                        max_configs = NULL,
-                                        nfilter = 5,
-                                        verbose = TRUE,
-                                        state_name = ".semiOPBART_hyper_D") {
-
+                                       data.name,
+                                       outcome_col,
+                                       levels,
+                                       x_features,
+                                       w_features,
+                                       test_data.name = NULL,
+                                       n_samp_range = c(500, 1000, 2000),
+                                       n_burn_range = c(500, 1000, 2000),
+                                       n_tree_range = c(50, 100, 200),
+                                       seed_range = c(42, 123, 456),
+                                       k_values = c(1, 2, 3),
+                                       n_swap_range = c(2, 4, 8),
+                                       warmup_burn = NULL,
+                                       max_configs = NULL,
+                                       nfilter = 5,
+                                       verbose = TRUE,
+                                       state_name = ".semiOPBART_hyper_D") {
+  
   if (is.null(conns)) conns <- DSI::datashield.connections_find()
   site_names <- names(conns)
   n_sites <- length(site_names)
-
+  
   param_grid <- expand.grid(
     n_samp = n_samp_range, n_burn = n_burn_range, n_tree = n_tree_range,
     seed = seed_range, k = k_values, n_swap = n_swap_range, stringsAsFactors = FALSE
@@ -419,19 +421,20 @@ ds.semiOPBARTExploreHyperD <- function(conns,
   param_grid <- param_grid[param_grid$n_swap <= param_grid$n_tree, , drop = FALSE]
   rownames(param_grid) <- NULL
   param_grid <- .semiOPBART_capConfigs(param_grid, max_configs)
-
+  
   if (verbose) message(sprintf("Testing %d configurations for Architecture D across %d sites",
-                                nrow(param_grid), n_sites))
-
+                               nrow(param_grid), n_sites))
+  
   all_results <- vector("list", nrow(param_grid))
   if (verbose) pb <- txtProgressBar(min = 0, max = nrow(param_grid), style = 3)
-
+  
   for (i in seq_len(nrow(param_grid))) {
     params <- param_grid[i, ]
     if (verbose) setTxtProgressBar(pb, i)
-    config_state <- paste0(state_name, "_config_", i)
+    print( paste0(state_name, "_config_", i))
+    config_state <- paste0(state_name, "_config_")
     wb <- if (is.null(warmup_burn)) min(50, as.integer(params$n_burn)) else warmup_burn
-
+    
     fit <- .semiOPBART_safe(function() {
       ds.semiOPBARTTrain(
         data.name = data.name, datasources = conns,
@@ -442,7 +445,7 @@ ds.semiOPBARTExploreHyperD <- function(conns,
         seed = as.integer(params$seed))
     }, i, "train (ds.semiOPBARTTrain)")
     if (is.null(fit)) next
-
+    
     metrics <- .semiOPBART_naMetrics()
     if (!is.null(test_data.name)) {
       pred_obj <- paste0(config_state, "_pred")
@@ -451,17 +454,17 @@ ds.semiOPBARTExploreHyperD <- function(conns,
           fit, data.name_test = test_data.name, newobj_pred = pred_obj,
           nfilter = nfilter, datasources = conns, seed = as.integer(params$seed))
       }, i, "predict (ds.semiOPBARTPredict)")
-
+      
       if (!is.null(pred_ok)) {
         eval_res <- .semiOPBART_safe(function() {
           ds.semiOPBARTEvaluate(
             pred_obj = pred_obj, levels = levels, nfilter = nfilter,
-            datasources = conns, label = paste0("D_config_", i))
+            datasources = conns, label = "D_config_")
         }, i, "evaluate (ds.semiOPBARTEvaluate)")
         metrics <- .semiOPBART_evalToMetrics(eval_res, levels)
       }
     }
-
+    
     all_results[[i]] <- data.frame(
       config_id = i, n_samp = as.integer(params$n_samp), n_burn = as.integer(params$n_burn),
       n_tree = as.integer(params$n_tree), seed = as.integer(params$seed), k = params$k,
@@ -472,10 +475,10 @@ ds.semiOPBARTExploreHyperD <- function(conns,
     )
   }
   if (verbose) close(pb)
-
+  
   results_df <- dplyr::bind_rows(all_results)
   if (nrow(results_df) == 0) stop("No configurations completed successfully for Architecture D")
-
+  
   list(results = results_df, architecture = "D",
        best_config = results_df[which.min(results_df$test_mae), ],
        param_grid = param_grid, site_names = site_names)
@@ -503,22 +506,22 @@ ds.semiOPBARTExploreHyperD <- function(conns,
 #' @param combine_method  Architecture F only
 #' @export
 ds.semiOPBARTExploreHyperparameters <- function(model_label,
-                                                 conns, data.name, outcome_col, levels,
-                                                 x_features, w_features,
-                                                 test_data.name = NULL,
-                                                 n_samp_range = c(500, 1000, 2000),
-                                                 n_burn_range = c(500, 1000, 2000),
-                                                 n_tree_range = c(50, 100, 200),
-                                                 seed_range = c(42, 123, 456),
-                                                 k_values = c(1, 2, 3),
-                                                 n_swap_range = c(2, 4, 8),
-                                                 combine_method = c("inverse_variance", "stack"),
-                                                 max_configs = NULL,
-                                                 nfilter = 5,
-                                                 verbose = TRUE) {
-
+                                                conns, data.name, outcome_col, levels,
+                                                x_features, w_features,
+                                                test_data.name = NULL,
+                                                n_samp_range = c(500, 1000, 2000),
+                                                n_burn_range = c(500, 1000, 2000),
+                                                n_tree_range = c(50, 100, 200),
+                                                seed_range = c(42, 123, 456),
+                                                k_values = c(1, 2, 3),
+                                                n_swap_range = c(2, 4, 8),
+                                                combine_method = c("inverse_variance", "stack"),
+                                                max_configs = NULL,
+                                                nfilter = 5,
+                                                verbose = TRUE) {
+  
   combine_method <- match.arg(combine_method)
-
+  
   if (verbose) message(sprintf(">>> %s: Architecture F (independent local fits)", model_label))
   res_F <- ds.semiOPBARTExploreHyperF(
     conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
@@ -527,7 +530,7 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
     seed_range = seed_range, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, combine_method = combine_method, verbose = verbose,
     state_name = paste0(".semiOPBART_hyper_F_", model_label))
-
+  
   if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local trees)", model_label))
   res_E <- ds.semiOPBARTExploreHyperE(
     conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
@@ -536,7 +539,7 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
     seed_range = seed_range, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, verbose = verbose,
     state_name = paste0(".semiOPBART_hyper_E_", model_label))
-
+  
   if (verbose) message(sprintf(">>> %s: Architecture D (tree swapping + theta/us pooling)", model_label))
   res_D <- ds.semiOPBARTExploreHyperD(
     conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
@@ -545,10 +548,10 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
     seed_range = seed_range, k_values = k_values, n_swap_range = n_swap_range,
     max_configs = max_configs, nfilter = nfilter, verbose = verbose,
     state_name = paste0(".semiOPBART_hyper_D_", model_label))
-
+  
   combined <- dplyr::bind_rows(res_F$results, res_E$results, res_D$results)
   combined$model <- model_label
-
+  
   list(
     combined_results = combined,
     by_architecture = list(F = res_F, E = res_E, D = res_D),
