@@ -18,12 +18,13 @@ ds.semiOPBARTExploreHyperE(
   n_burn_range = c(500, 1000, 2000),
   n_tree_range = c(50, 100, 200),
   seed_range = c(42, 123, 456),
+  sync_every = c(10, 15, 20, 50, 100),
   k_values = c(1, 2, 3),
-  warmup_burn = NULL,
+  warmup_burn = 1,
   max_configs = NULL,
   nfilter = 5,
   verbose = TRUE,
-  state_name = ".semiOPBART_hyper_E"
+  state_name = ".semiOPBART_hyper"
 )
 }
 \arguments{

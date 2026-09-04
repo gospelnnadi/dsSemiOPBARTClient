@@ -10,7 +10,7 @@ ds.semiOPBARTPredictE(
   fit,
   data.name_test,
   newobj_pred = "semiOPBART_pred_E",
-  prediction_method = c("point", "draws"),
+  prediction_method = c("draws", "point"),
   nfilter = 5,
   datasources = NULL,
   seed = 35

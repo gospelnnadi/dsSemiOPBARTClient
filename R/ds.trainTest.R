@@ -17,34 +17,34 @@
 
 # ---- client side ------------------------------------------------------------
 
-#' @param fit             output of ds.semiOPBARTTrain() -- must contain
-#'   $theta, $us, $data.name, $site_names
-#' @param data.name_test  the TEST object, distinct from the object `fit`
-#'   was trained on -- passing the same name is refused
-#' @export
-ds.semiOPBARTPredict <- function(fit, data.name_test = "semiOPBART_test",
-                                  newobj_pred = "semiOPBART_pred",
-                                  nfilter = 5, datasources = NULL, seed = 35) {
-  set.seed(seed)
-  if (identical(data.name_test, fit$data.name))
-    stop("data.name_test must differ from the object ds.semiOPBARTTrain() ",
-         "used -- refusing to evaluate on the training data")
-  if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
+# #' @param fit             output of ds.semiOPBARTTrain() -- must contain
+# #'   $theta, $us, $data.name, $site_names
+# #' @param data.name_test  the TEST object, distinct from the object `fit`
+# #'   was trained on -- passing the same name is refused
+# #' @export
+# ds.semiOPBARTPredict <- function(fit, data.name_test = "semiOPBART_test",
+#                                   newobj_pred = "semiOPBART_pred",
+#                                   nfilter = 5, datasources = NULL, seed = 35) {
+#   set.seed(seed)
+#   if (identical(data.name_test, fit$data.name))
+#     stop("data.name_test must differ from the object ds.semiOPBARTTrain() ",
+#          "used -- refusing to evaluate on the training data")
+#   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
 
-  untrained_requested <- setdiff(names(datasources), fit$site_names)
-  if (length(untrained_requested))
-    stop("ds.semiOPBARTPredict(): ", paste(untrained_requested, collapse = ", "),
-         " were not part of the ds.semiOPBARTTrain() run this `fit` came ",
-         "from. Under the current swap-based design every site keeps its ",
-         "own complete forest -- there is no single pooled 'global' tree ",
-         "set left to reconstruct and ship to a site that never trained. ",
-         "Drop these from `datasources`, or have them train too.")
+#   untrained_requested <- setdiff(names(datasources), fit$site_names)
+#   if (length(untrained_requested))
+#     stop("ds.semiOPBARTPredict(): ", paste(untrained_requested, collapse = ", "),
+#          " were not part of the ds.semiOPBARTTrain() run this `fit` came ",
+#          "from. Under the current swap-based design every site keeps its ",
+#          "own complete forest -- there is no single pooled 'global' tree ",
+#          "set left to reconstruct and ship to a site that never trained. ",
+#          "Drop these from `datasources`, or have them train too.")
 
-  DSI::datashield.aggregate(datasources,
-      call("semiOPBARTLocalPredictDS", semiOPBART_toSerialize(fit$theta),
-           semiOPBART_toSerialize(fit$us), data.name_test, newobj_pred, nfilter,
-           fit$state_name %||% ".semiOPBART_state", seed = seed))
-}
+#   DSI::datashield.aggregate(datasources,
+#       call("semiOPBARTLocalPredictDS", semiOPBART_toSerialize(fit$theta),
+#            semiOPBART_toSerialize(fit$us), data.name_test, newobj_pred, nfilter,
+#            fit$state_name %||% ".semiOPBART_state", seed = seed))
+# }
 
 
 #' Predict at one or more sites -- MUST be sites that were part of the
@@ -64,7 +64,7 @@ ds.semiOPBARTPredict <- function(fit, data.name_test = "semiOPBART_test",
 #' @export
 ds.semiOPBARTPredictE <- function(fit, data.name_test,
                                   newobj_pred = "semiOPBART_pred_E",
-                                  prediction_method = c("point", "draws"),
+                                  prediction_method = c( "draws","point"), # c("point", "draws"),
                                   nfilter = 5, datasources = NULL, seed = 35) {
   prediction_method <- match.arg(prediction_method)
   set.seed(seed)

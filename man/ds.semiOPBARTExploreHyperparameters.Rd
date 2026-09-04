@@ -23,9 +23,10 @@ ds.semiOPBARTExploreHyperparameters(
   seed_range = c(42, 123, 456),
   k_values = c(1, 2, 3),
   n_swap_range = c(2, 4, 8),
-  combine_method = c("inverse_variance", "stack"),
+  sync_every = c(10, 15),
+  combine_method = c("inverse_variance", "random_effects", "stack"),
   max_configs = NULL,
-  nfilter = 5,
+  nfilter = 0,
   verbose = TRUE
 )
 }

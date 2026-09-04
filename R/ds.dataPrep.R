@@ -412,13 +412,15 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
                                   newobj_test = "semiOPBART_test",
                                   newobj_holdout = "semiOPBART_holdout",
                                   nfilter = 5, datasources = NULL) {
+
   normalize_method <- match.arg(normalize_method)
   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
+  if (nfilter < 1) stop("nfilter must be >= 1; it is the minimum POOLED count per bin.")
 
   ds.semiOPBARTTransform(data.name, outcome_col, levels, x_features, w_features,
                           transform_recipe, newobj = "semiOPBART_transformed",
                           nfilter = nfilter, datasources = datasources)
-
+  print("ds.semiOPBARTPrepare(): transform complete, now splitting train/test/holdout...")
   split_plan <- ds.semiOPBARTSplit(
       data.name = "semiOPBART_transformed", outcome_col = outcome_col,
       site_roles = site_roles, train_ratio = train_ratio, seed = seed,
@@ -443,12 +445,12 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
           nfilter = nfilter, custom_bin_edges = custom_bin_edges,
           datasources = datasources[split_plan$train_sites])
   }
-
+  print("ds.semiOPBARTPrepare(): normalization complete...")
   norm_result <- ds.semiOPBARTNormalizeSplit(
       train.name = newobj_train, test.name = newobj_test, holdout.name = newobj_holdout,
       normalize_method = normalize_method, global_range = global_range,
       global_ecdf = global_ecdf, nfilter = nfilter, datasources = datasources)
-
+print("ds.semiOPBARTPrepare(): all steps complete.")
   # global_range/global_ecdf are returned (not just used internally) so the
   # caller -- typically the orchestrator -- can hang onto them for
   # ds.semiOPBARTPredictExternal() later, which needs the EXACT same

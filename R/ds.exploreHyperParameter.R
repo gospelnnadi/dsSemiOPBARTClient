@@ -5,7 +5,7 @@
 # WHY THIS FILE WAS REWRITTEN
 # ---------------------------------------------------------------------------
 # The previous version of this file called seven server-side aggregate
-# functions that do not exist anywhere in the dsSBART package:
+# functions that do not exist anywhere in the dsSemiOPBART package:
 #   semiOPBARTLocalFitFHyper, semiOPBARTLocalPredictFHyper,
 #   semiOPBARTLocalInitEHyper, semiOPBARTLocalGibbsEHyper,
 #   semiOPBARTLocalPredictEHyper, semiOPBARTLocalInitDHyper,
@@ -55,22 +55,7 @@
   param_grid
 }
 
-#' Ordinal mean absolute error computed DIRECTLY from an aggregated
-#' (truth x predicted) confusion matrix, i.e. from counts that are already
-#' safe to have crossed the DataSHIELD boundary (see ds.semiOPBARTEvaluate()
-#' / semiOPBARTLocalConfusionDS()) -- no new disclosure surface, and no
-#' reliance on raw per-patient predictions ever reaching the client (they
-#' never do, and never should).
-#'
-#' cm's rows and columns are both ordered by `levels` (see
-#' semiOPBARTLocalConfusionDS(): `factor(..., levels = levels)` for both
-#' truth and prediction), so `outer(lv, lv, "-")` lines up with cm exactly.
-.semiOPBART_ordinalMAE <- function(cm, levels) {
-  lv <- suppressWarnings(as.numeric(as.character(levels)))
-  if (anyNA(lv)) lv <- seq_along(levels) - 1  # fallback: treat as equally-spaced ranks
-  dist_mat <- abs(outer(lv, lv, "-"))
-  sum(cm * dist_mat) / sum(cm)
-}
+
 
 #' Turn one ds.semiOPBARTEvaluate() result (or NULL, if evaluation wasn't
 #' run/failed for this config) into the flat metrics used in every results
@@ -88,15 +73,19 @@
 #' -- this just picks them out instead of "Accuracy".
 .semiOPBART_evalToMetrics <- function(eval_res, levels) {
   if (is.null(eval_res)) {
-    return(list(test_mae = NA_real_, test_balacc = NA_real_,
+    return(list(test_mae = NA_real_, test_acc = NA_real_, test_balacc = NA_real_,
                 test_f1 = NA_real_, test_kappa = NA_real_,
                 n_test = NA_integer_))
   }
+  mae <- eval_res$metrics$value[eval_res$metrics$metric == "MAE"]
+  acc <- eval_res$metrics$value[eval_res$metrics$metric == "Accuracy"]
   balacc <- eval_res$metrics$value[eval_res$metrics$metric == "Balanced Accuracy"]
   f1     <- eval_res$metrics$value[eval_res$metrics$metric == "Macro F1"]
   kappa  <- eval_res$metrics$value[eval_res$metrics$metric == "Kappa"]
+
   list(
-    test_mae    = .semiOPBART_ordinalMAE(eval_res$confusion, levels),
+    test_mae    = if (length(mae)) mae else NA_real_, 
+    test_acc = if (length(acc)) acc else NA_real_,
     test_balacc = if (length(balacc)) balacc else NA_real_,
     test_f1     = if (length(f1))     f1     else NA_real_,
     test_kappa  = if (length(kappa))  kappa  else NA_real_,
@@ -153,97 +142,109 @@
 #' @param state_name  base name for this run's per-config server-side state
 #' @export
 ds.semiOPBARTExploreHyperF <- function(conns,
-                                       data.name,
-                                       outcome_col,
-                                       levels,
-                                       x_features,
-                                       w_features,
-                                       test_data.name = NULL,
-                                       n_samp_range = c(500, 1000, 2000),
-                                       n_burn_range = c(500, 1000, 2000),
-                                       n_tree_range = c(50, 100, 200),
-                                       seed_range = c(42, 123, 456),
-                                       k_values = c(1, 2, 3),
-                                       max_configs = NULL,
-                                       nfilter = 5,
-                                       combine_method = c("inverse_variance", "stack"),
-                                       verbose = TRUE,
-                                       state_name = ".semiOPBART_hyper_F") {
-  
+                                        data.name,
+                                        outcome_col,
+                                        levels,
+                                        x_features,
+                                        w_features,
+                                        test_data.name = NULL,
+                                        n_samp_range = c(500, 1000, 2000),
+                                        n_burn_range = c(500, 1000, 2000),
+                                        n_tree_range = c(50, 100, 200),
+                                        seed_range = c(42, 123, 456),
+                                        k_values = c(1, 2, 3),
+                                        max_configs = NULL,
+                                        nfilter = 5,
+                                        combine_method = c("random_effects", "inverse_variance", "stack"),
+                                        verbose = TRUE,
+                                        state_name = ".semiOPBART_hyper") {
+
   combine_method <- match.arg(combine_method)
   if (is.null(conns)) conns <- DSI::datashield.connections_find()
-  site_names <- names(conns)
+
+   # ---- FILTER: Only connections with train object ----
+  trainable_conns <- .filter_trainable_connections(
+    conns = conns,
+    train.name = data.name,
+    verbose = verbose
+  )
   
+  site_names <- names(trainable_conns)
+  #site_names <- names(conns)
+
   param_grid <- expand.grid(
     n_samp = n_samp_range, n_burn = n_burn_range, n_tree = n_tree_range,
     seed = seed_range, k = k_values, stringsAsFactors = FALSE
   )
   param_grid <- .semiOPBART_capConfigs(param_grid, max_configs)
-  
+
   formula_obj        <- stats::as.formula(paste(outcome_col, "~", paste(x_features, collapse = " + ")))
   linear_formula_obj <- stats::as.formula(paste("~", paste(w_features, collapse = " + ")))
-  
+
   if (verbose) message(sprintf("Testing %d configurations for Architecture F across %d sites",
-                               nrow(param_grid), length(site_names)))
-  
+                                nrow(param_grid), length(site_names)))
+
   all_results <- vector("list", nrow(param_grid))
   if (verbose) pb <- txtProgressBar(min = 0, max = nrow(param_grid), style = 3)
-  
+
   for (i in seq_len(nrow(param_grid))) {
     params <- param_grid[i, ]
     if (verbose) setTxtProgressBar(pb, i)
-    print( paste0(state_name, "_config_", i))
+    print( paste0(state_name, "_F_config_", i))
     config_state <- paste0(state_name, "_config_")
-    
+
     site_fits <- .semiOPBART_safe(function() {
       ds.semiOPBARTFitF(
         formula = formula_obj, linear_formula = linear_formula_obj,
-        data.name = data.name, datasources = conns,
+        data.name = data.name, datasources = trainable_conns,
         num_tree = as.integer(params$n_tree), k = params$k,
         num_burn = as.integer(params$n_burn), num_save = as.integer(params$n_samp),
         nfilter = nfilter, state_name = config_state, seed = as.integer(params$seed))
     }, i, "fit (ds.semiOPBARTFitF)")
     if (is.null(site_fits)) next
-    
+
     combined <- .semiOPBART_safe(function() {
       ds.semiOPBARTCombineF(site_fits, combine_method = combine_method)
     }, i, "combine (ds.semiOPBARTCombineF)")
     if (is.null(combined)) next
-    
+
     metrics <- .semiOPBART_naMetrics()
     if (!is.null(test_data.name)) {
       pred_obj <- paste0(config_state, "_pred")
       pred_ok <- .semiOPBART_safe(function() {
         ds.semiOPBARTPredictF(
           combined, data.name_test = test_data.name, outcome_col = outcome_col,
-          newobj_pred = pred_obj, nfilter = nfilter, datasources = conns,
+          newobj_pred = pred_obj, nfilter = nfilter, datasources = trainable_conns,
           seed = as.integer(params$seed))
       }, i, "predict (ds.semiOPBARTPredictF)")
-      
+
       if (!is.null(pred_ok)) {
         eval_res <- .semiOPBART_safe(function() {
           ds.semiOPBARTEvaluate(
             pred_obj = pred_obj, levels = levels, nfilter = nfilter,
-            datasources = conns, label = "F_config_")
+            datasources = trainable_conns, label = "F_config_")
         }, i, "evaluate (ds.semiOPBARTEvaluate)")
         metrics <- .semiOPBART_evalToMetrics(eval_res, levels)
       }
     }
-    
+
+
+
+
     all_results[[i]] <- data.frame(
       config_id = i, n_samp = as.integer(params$n_samp), n_burn = as.integer(params$n_burn),
       n_tree = as.integer(params$n_tree), seed = as.integer(params$seed), k = params$k,
-      n_swap = NA_integer_, architecture = "F", n_sites = length(site_fits),
-      test_mae = metrics$test_mae, test_balacc = metrics$test_balacc,
+      n_swap = NA_integer_, sync_every = NA_integer_, architecture = "F", n_sites = length(site_fits),
+      test_mae = metrics$test_mae, test_acc = metrics$test_acc, test_balacc = metrics$test_balacc,
       test_f1 = metrics$test_f1, test_kappa = metrics$test_kappa,
       n_test = metrics$n_test, stringsAsFactors = FALSE
     )
   }
   if (verbose) close(pb)
-  
+
   results_df <- dplyr::bind_rows(all_results)
   if (nrow(results_df) == 0) stop("No configurations completed successfully for Architecture F")
-  
+
   list(results = results_df, architecture = "F",
        best_config = results_df[which.min(results_df$test_mae), ],
        param_grid = param_grid, site_names = site_names)
@@ -276,210 +277,105 @@ ds.semiOPBARTExploreHyperF <- function(conns,
 #' @param state_name  base name for this run's per-config server-side state
 #' @export
 ds.semiOPBARTExploreHyperE <- function(conns,
-                                       data.name,
-                                       outcome_col,
-                                       levels,
-                                       x_features,
-                                       w_features,
-                                       test_data.name = NULL,
-                                       n_samp_range = c(500, 1000, 2000),
-                                       n_burn_range = c(500, 1000, 2000),
-                                       n_tree_range = c(50, 100, 200),
-                                       seed_range = c(42, 123, 456),
-                                       k_values = c(1, 2, 3),
-                                       warmup_burn = NULL,
-                                       max_configs = NULL,
-                                       nfilter = 5,
-                                       verbose = TRUE,
-                                       state_name = ".semiOPBART_hyper_E") {
-  
+                                        data.name,
+                                        outcome_col,
+                                        levels,
+                                        x_features,
+                                        w_features,
+                                        test_data.name = NULL,
+                                        n_samp_range = c(500, 1000, 2000),
+                                        n_burn_range = c(500, 1000, 2000),
+                                        n_tree_range = c(50, 100, 200),
+                                        seed_range = c(42, 123, 456),
+                                       sync_every= c(10,15, 20,50,100),
+                                        k_values = c(1, 2, 3),
+                                        warmup_burn =1, #  NULL, 
+                                        max_configs = NULL,
+                                        nfilter = 5,
+                                        verbose = TRUE,
+                                        state_name = ".semiOPBART_hyper") {
+
   if (is.null(conns)) conns <- DSI::datashield.connections_find()
-  site_names <- names(conns)
+  # ---- FILTER: Only connections with train object ----
+  trainable_conns <- .filter_trainable_connections(
+    conns = conns,
+    train.name = data.name,
+    verbose = verbose
+  )
   
+  site_names <- names(trainable_conns)
+  #site_names <- names(conns)
+
   param_grid <- expand.grid(
     n_samp = n_samp_range, n_burn = n_burn_range, n_tree = n_tree_range,
-    seed = seed_range, k = k_values, stringsAsFactors = FALSE
+    seed = seed_range,sync_every=sync_every, k = k_values, stringsAsFactors = FALSE
   )
   param_grid <- .semiOPBART_capConfigs(param_grid, max_configs)
-  
+
   if (verbose) message(sprintf("Testing %d configurations for Architecture E across %d sites",
-                               nrow(param_grid), length(site_names)))
-  
+                                nrow(param_grid), length(site_names)))
+
   all_results <- vector("list", nrow(param_grid))
   if (verbose) pb <- txtProgressBar(min = 0, max = nrow(param_grid), style = 3)
-  
+
   for (i in seq_len(nrow(param_grid))) {
+    print(paste0("i  : ", i))
     params <- param_grid[i, ]
     if (verbose) setTxtProgressBar(pb, i)
-    print( paste0(state_name, "_config_", i))
+    print( paste0(state_name, "_E_config_", i))
     config_state <- paste0(state_name, "_config_")
     wb <- if (is.null(warmup_burn)) min(50, as.integer(params$n_burn)) else warmup_burn
-    
+
     fit <- .semiOPBART_safe(function() {
       ds.semiOPBARTTrainE(
-        data.name = data.name, datasources = conns,
+        data.name = data.name, datasources = trainable_conns,
         num_tree = as.integer(params$n_tree), k = params$k,
         num_burn = as.integer(params$n_burn), num_save = as.integer(params$n_samp),
+        sync_every=as.integer(params$sync_every),
         warmup_burn = wb, nfilter_threshold = nfilter,
         state_name = config_state, seed = as.integer(params$seed))
-    }, i, "train (ds.semiOPBARTTrainE)")
+      }, i, "train (ds.semiOPBARTTrainE)")
+
     if (is.null(fit)) next
-    
+
     metrics <- .semiOPBART_naMetrics()
     if (!is.null(test_data.name)) {
       pred_obj <- paste0(config_state, "_pred")
       pred_ok <- .semiOPBART_safe(function() {
         ds.semiOPBARTPredictE(
           fit, data.name_test = test_data.name, newobj_pred = pred_obj,
-          prediction_method = "point", nfilter = nfilter, datasources = conns,
+          #prediction_method = "point",
+          nfilter = nfilter, datasources = trainable_conns,
           seed = as.integer(params$seed))
       }, i, "predict (ds.semiOPBARTPredictE)")
-      
+
       if (!is.null(pred_ok)) {
         eval_res <- .semiOPBART_safe(function() {
           ds.semiOPBARTEvaluate(
             pred_obj = pred_obj, levels = levels, nfilter = nfilter,
-            datasources = conns, label = "E_config_" )
+            datasources = trainable_conns, label = "E_config_" )
         }, i, "evaluate (ds.semiOPBARTEvaluate)")
         metrics <- .semiOPBART_evalToMetrics(eval_res, levels)
       }
     }
-    
+
     all_results[[i]] <- data.frame(
       config_id = i, n_samp = as.integer(params$n_samp), n_burn = as.integer(params$n_burn),
-      n_tree = as.integer(params$n_tree), seed = as.integer(params$seed), k = params$k,
+      n_tree = as.integer(params$n_tree),
+      sync_every = as.integer(params$sync_every),
+      seed = as.integer(params$seed), k = params$k,
       n_swap = NA_integer_, architecture = "E", n_sites = length(fit$site_names),
-      test_mae = metrics$test_mae, test_balacc = metrics$test_balacc,
+      test_mae = metrics$test_mae,test_acc = metrics$test_acc, test_balacc = metrics$test_balacc,
       test_f1 = metrics$test_f1, test_kappa = metrics$test_kappa,
       n_test = metrics$n_test, stringsAsFactors = FALSE
     )
   }
   if (verbose) close(pb)
-  
+
   results_df <- dplyr::bind_rows(all_results)
   if (nrow(results_df) == 0) stop("No configurations completed successfully for Architecture E")
-  
+
   list(results = results_df, architecture = "E",
-       best_config = results_df[which.min(results_df$test_mae), ],
-       param_grid = param_grid, site_names = site_names)
-}
-
-
-# ============================================================================
-# ARCHITECTURE D HYPERPARAMETER EXPLORATION
-# ============================================================================
-
-#' Client: Explore hyperparameters for Architecture D, using the real
-#' ds.semiOPBARTTrain() / ds.semiOPBARTPredict() / ds.semiOPBARTEvaluate()
-#' pipeline (periodic theta/us sync + tree swapping) for every grid point.
-#'
-#' @param conns  list of DataSHIELD connections to the sites
-#' @param data.name  the TRAIN object at each site
-#' @param outcome_col,x_features,w_features  kept for signature consistency
-#'   with ds.semiOPBARTExploreHyperF/E(); not used directly by Architecture D's
-#'   own training call
-#' @param levels  factor levels of the outcome (forwarded to ds.semiOPBARTEvaluate())
-#' @param test_data.name  name of the TEST object at each site (optional)
-#' @param n_samp_range,n_burn_range,n_tree_range,seed_range,k_values  grids to sweep
-#' @param n_swap_range  number of trees swapped per rotation; grid is filtered
-#'   to n_swap <= n_tree (a config can't swap more trees than it owns)
-#' @param warmup_burn  warm-start iterations before the main loop, forwarded to
-#'   ds.semiOPBARTTrain(); default `min(50, n_burn)` per config
-#' @param max_configs  cap the grid at this many randomly-sampled rows (optional)
-#' @param nfilter  disclosure floor forwarded to train/predict/evaluate
-#' @param verbose  print progress
-#' @param state_name  base name for this run's per-config server-side state
-#' @export
-ds.semiOPBARTExploreHyperD <- function(conns,
-                                       data.name,
-                                       outcome_col,
-                                       levels,
-                                       x_features,
-                                       w_features,
-                                       test_data.name = NULL,
-                                       n_samp_range = c(500, 1000, 2000),
-                                       n_burn_range = c(500, 1000, 2000),
-                                       n_tree_range = c(50, 100, 200),
-                                       seed_range = c(42, 123, 456),
-                                       k_values = c(1, 2, 3),
-                                       n_swap_range = c(2, 4, 8),
-                                       warmup_burn = NULL,
-                                       max_configs = NULL,
-                                       nfilter = 5,
-                                       verbose = TRUE,
-                                       state_name = ".semiOPBART_hyper_D") {
-  
-  if (is.null(conns)) conns <- DSI::datashield.connections_find()
-  site_names <- names(conns)
-  n_sites <- length(site_names)
-  
-  param_grid <- expand.grid(
-    n_samp = n_samp_range, n_burn = n_burn_range, n_tree = n_tree_range,
-    seed = seed_range, k = k_values, n_swap = n_swap_range, stringsAsFactors = FALSE
-  )
-  # n_swap must be <= n_tree -- a site can't swap out more trees than it owns
-  param_grid <- param_grid[param_grid$n_swap <= param_grid$n_tree, , drop = FALSE]
-  rownames(param_grid) <- NULL
-  param_grid <- .semiOPBART_capConfigs(param_grid, max_configs)
-  
-  if (verbose) message(sprintf("Testing %d configurations for Architecture D across %d sites",
-                               nrow(param_grid), n_sites))
-  
-  all_results <- vector("list", nrow(param_grid))
-  if (verbose) pb <- txtProgressBar(min = 0, max = nrow(param_grid), style = 3)
-  
-  for (i in seq_len(nrow(param_grid))) {
-    params <- param_grid[i, ]
-    if (verbose) setTxtProgressBar(pb, i)
-    print( paste0(state_name, "_config_", i))
-    config_state <- paste0(state_name, "_config_")
-    wb <- if (is.null(warmup_burn)) min(50, as.integer(params$n_burn)) else warmup_burn
-    
-    fit <- .semiOPBART_safe(function() {
-      ds.semiOPBARTTrain(
-        data.name = data.name, datasources = conns,
-        num_tree = as.integer(params$n_tree), k = params$k,
-        num_burn = as.integer(params$n_burn), num_save = as.integer(params$n_samp),
-        n_swap = as.integer(params$n_swap), warmup_burn = wb,
-        nfilter_threshold = nfilter, state_name = config_state,
-        seed = as.integer(params$seed))
-    }, i, "train (ds.semiOPBARTTrain)")
-    if (is.null(fit)) next
-    
-    metrics <- .semiOPBART_naMetrics()
-    if (!is.null(test_data.name)) {
-      pred_obj <- paste0(config_state, "_pred")
-      pred_ok <- .semiOPBART_safe(function() {
-        ds.semiOPBARTPredict(
-          fit, data.name_test = test_data.name, newobj_pred = pred_obj,
-          nfilter = nfilter, datasources = conns, seed = as.integer(params$seed))
-      }, i, "predict (ds.semiOPBARTPredict)")
-      
-      if (!is.null(pred_ok)) {
-        eval_res <- .semiOPBART_safe(function() {
-          ds.semiOPBARTEvaluate(
-            pred_obj = pred_obj, levels = levels, nfilter = nfilter,
-            datasources = conns, label = "D_config_")
-        }, i, "evaluate (ds.semiOPBARTEvaluate)")
-        metrics <- .semiOPBART_evalToMetrics(eval_res, levels)
-      }
-    }
-    
-    all_results[[i]] <- data.frame(
-      config_id = i, n_samp = as.integer(params$n_samp), n_burn = as.integer(params$n_burn),
-      n_tree = as.integer(params$n_tree), seed = as.integer(params$seed), k = params$k,
-      n_swap = as.integer(params$n_swap), architecture = "D", n_sites = length(fit$site_names),
-      test_mae = metrics$test_mae, test_balacc = metrics$test_balacc,
-      test_f1 = metrics$test_f1, test_kappa = metrics$test_kappa,
-      n_test = metrics$n_test, stringsAsFactors = FALSE
-    )
-  }
-  if (verbose) close(pb)
-  
-  results_df <- dplyr::bind_rows(all_results)
-  if (nrow(results_df) == 0) stop("No configurations completed successfully for Architecture D")
-  
-  list(results = results_df, architecture = "D",
        best_config = results_df[which.min(results_df$test_mae), ],
        param_grid = param_grid, site_names = site_names)
 }
@@ -506,58 +402,612 @@ ds.semiOPBARTExploreHyperD <- function(conns,
 #' @param combine_method  Architecture F only
 #' @export
 ds.semiOPBARTExploreHyperparameters <- function(model_label,
-                                                conns, data.name, outcome_col, levels,
-                                                x_features, w_features,
-                                                test_data.name = NULL,
-                                                n_samp_range = c(500, 1000, 2000),
-                                                n_burn_range = c(500, 1000, 2000),
-                                                n_tree_range = c(50, 100, 200),
-                                                seed_range = c(42, 123, 456),
-                                                k_values = c(1, 2, 3),
-                                                n_swap_range = c(2, 4, 8),
-                                                combine_method = c("inverse_variance", "stack"),
-                                                max_configs = NULL,
-                                                nfilter = 5,
-                                                verbose = TRUE) {
-  
+                                                 conns, data.name, outcome_col, levels,
+                                                 x_features, w_features,
+                                                 test_data.name = NULL,
+                                                 n_samp_range = c(500, 1000, 2000),
+                                                 n_burn_range = c(500, 1000, 2000),
+                                                 n_tree_range = c(50, 100, 200),
+                                                 seed_range = c(42, 123, 456),
+                                                 k_values = c(1, 2, 3),
+                                                 n_swap_range = c(2, 4, 8),
+                                                sync_every= c(10,15),
+                                                 combine_method = c(  "inverse_variance", "random_effects", "stack"), #c( "stack", "inverse_variance", "random_effects" ), #c( "random_effects", "stack", "inverse_variance"), #
+                                                 max_configs = NULL,
+                                                 nfilter =0,# 5,
+                                                 verbose = TRUE) {
+
   combine_method <- match.arg(combine_method)
-  
+
   if (verbose) message(sprintf(">>> %s: Architecture F (independent local fits)", model_label))
-  res_F <- ds.semiOPBARTExploreHyperF(
-    conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
-    x_features = x_features, w_features = w_features, test_data.name = test_data.name,
-    n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
-    seed_range = seed_range, k_values = k_values, max_configs = max_configs,
-    nfilter = nfilter, combine_method = combine_method, verbose = verbose,
-    state_name = paste0(".semiOPBART_hyper_F_", model_label))
-  
-  if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local trees)", model_label))
+  # res_F <- ds.semiOPBARTExploreHyperF(
+  #   conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
+  #   x_features = x_features, w_features = w_features, test_data.name = test_data.name,
+  #   n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
+  #   seed_range = seed_range, k_values = k_values, max_configs = max_configs,
+  #   nfilter = nfilter, combine_method = combine_method, verbose = verbose,
+  #   state_name = ".semiOPBART_hyper")
+  res_F <- NULL
+
+#   combined <- dplyr::bind_rows(res_F$results, NULL, NULL)
+#   combined$model <- model_label
+
+#   list(
+#     combined_results = combined,
+#     by_architecture = list(F = res_F),
+#     best_overall = combined[which.min(combined$test_mae), ],
+#     best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
+#       d[which.min(d$test_mae), ]
+#     }))
+#   )
+# }
+
+
+
+if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local trees)", model_label))
   res_E <- ds.semiOPBARTExploreHyperE(
     conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
     x_features = x_features, w_features = w_features, test_data.name = test_data.name,
     n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
-    seed_range = seed_range, k_values = k_values, max_configs = max_configs,
+    seed_range = seed_range,sync_every= sync_every, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, verbose = verbose,
-    state_name = paste0(".semiOPBART_hyper_E_", model_label))
-  
-  if (verbose) message(sprintf(">>> %s: Architecture D (tree swapping + theta/us pooling)", model_label))
-  res_D <- ds.semiOPBARTExploreHyperD(
-    conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
-    x_features = x_features, w_features = w_features, test_data.name = test_data.name,
-    n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
-    seed_range = seed_range, k_values = k_values, n_swap_range = n_swap_range,
-    max_configs = max_configs, nfilter = nfilter, verbose = verbose,
-    state_name = paste0(".semiOPBART_hyper_D_", model_label))
-  
-  combined <- dplyr::bind_rows(res_F$results, res_E$results, res_D$results)
+    state_name = ".semiOPBART_hyper")
+
+  # if (verbose) message(sprintf(">>> %s: Architecture D (tree swapping + theta/us pooling)", model_label))
+  # res_D <- ds.semiOPBARTExploreHyperD(
+  #   conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
+  #   x_features = x_features, w_features = w_features, test_data.name = test_data.name,
+  #   n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
+  #   seed_range = seed_range, k_values = k_values, n_swap_range = n_swap_range,
+  #   max_configs = max_configs, nfilter = nfilter, verbose = verbose,
+  #   state_name = ".semiOPBART_hyper")
+  #
+  # combined <- dplyr::bind_rows(res_F$results, res_E$results, res_D$results)
+  # combined$model <- model_label
+  #
+  # list(
+  #   combined_results = combined,
+  #   by_architecture = list(F = res_F, E = res_E, D = res_D),
+  #   best_overall = combined[which.min(combined$test_mae), ],
+  #   best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
+  #     d[which.min(d$test_mae), ]
+  #   }))
+  # )
+
+  combined <- dplyr::bind_rows(res_F$results, res_E$results, NULL)
   combined$model <- model_label
-  
+
   list(
     combined_results = combined,
-    by_architecture = list(F = res_F, E = res_E, D = res_D),
+    by_architecture = list(F = res_F, E = res_E, D = NULL),
     best_overall = combined[which.min(combined$test_mae), ],
     best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
       d[which.min(d$test_mae), ]
     }))
+  )
+}
+
+
+
+
+#' Fit the best Architecture E/F configuration and perform external prediction
+#'
+#' Uses the best configuration selected by the orchestrator, trains that
+#' architecture on the trainable sites, chooses the trained site with the
+#' largest number of observations as the reference site, exports that site's
+#' forest together with its normalization reference, and performs prediction
+#' at non-trained sites.
+#'
+#' Prediction is always returned. If validation_col is supplied, the function
+#' also runs ds.semiOPBARTEvaluate() and returns the evaluation metrics.
+#'
+#' @param best_config One row from the orchestrator results, e.g. best_ip.
+#' @param architecture "E" or "F". If NULL, uses best_config$architecture.
+#' @param conns DataSHIELD connections.
+#' @param data.name Training object name.
+#' @param test_data.name Test/validation object name.
+#' @param outcome_col Outcome column name.
+#' @param validation_col Optional validation outcome column. If supplied,
+#'   evaluation is performed.
+#' @param levels Outcome levels.
+#' @param x_features Predictor columns for Architecture F.
+#' @param w_features Linear predictor columns for Architecture F.
+#' @param combine_method Combination method for Architecture F.
+#' @param nfilter Disclosure threshold.
+#' @param warmup_burn Warm-up iterations for Architecture E.
+#' @param state_prefix Server-side state prefix.
+#' @param prediction_name Server-side prediction object name.
+#' @param verbose Logical.
+#'
+#' @export
+ds.semiOPBARTFitBestAndExternalPredict <- function(
+    best_config,
+    architecture = NULL,
+    conns = NULL,
+    data.name,
+    test_data.name,
+    outcome_col,
+    validation_col = NULL,
+    levels = 0:4,
+    x_features = NULL,
+    w_features = NULL,
+    combine_method = "inverse_variance",
+    nfilter = 5,
+    warmup_burn = 1,
+    state_prefix = ".semiOPBART_best_external",
+    prediction_name = NULL,
+    verbose = TRUE
+) {
+
+  if (is.null(conns)) {
+    conns <- DSI::datashield.connections_find()
+  }
+
+  if (nrow(best_config) != 1L) {
+    stop("best_config must contain exactly one configuration row")
+  }
+
+  if (is.null(architecture)) {
+    if (!"architecture" %in% names(best_config)) {
+      stop("best_config does not contain an 'architecture' column")
+    }
+
+    architecture <- as.character(best_config$architecture[[1]])
+  }
+
+  architecture <- toupper(architecture)
+
+  if (!architecture %in% c("E", "F")) {
+    stop(
+      "Only Architecture E or F is supported, got '",
+      architecture, "'"
+    )
+  }
+
+  required_params <- c(
+    "n_tree",
+    "k",
+    "n_burn",
+    "n_samp",
+    "seed"
+  )
+
+  missing_params <- setdiff(
+    required_params,
+    names(best_config)
+  )
+
+  if (length(missing_params)) {
+    stop(
+      "best_config is missing required parameters: ",
+      paste(missing_params, collapse = ", ")
+    )
+  }
+
+  # ---------------------------------------------------------------
+  # 1. Restrict training to sites that actually have data.name
+  # ---------------------------------------------------------------
+
+  trainable_conns <- .filter_trainable_connections(
+    conns = conns,
+    train.name = data.name,
+    verbose = verbose
+  )
+
+  if (!length(trainable_conns)) {
+    stop("No trainable sites were found")
+  }
+
+  train_site_names <- names(trainable_conns)
+
+  if (verbose) {
+    message(
+      "[BestExternal] Trainable sites: ",
+      paste(train_site_names, collapse = ", ")
+    )
+  }
+
+  # ---------------------------------------------------------------
+  # 2. State name for this single final fit
+  # ---------------------------------------------------------------
+
+  config_id <- if ("config_id" %in% names(best_config)) {
+    as.integer(best_config$config_id[[1]])
+  } else {
+    1L
+  }
+
+  config_state <- paste0(
+    state_prefix,
+    "_",
+    architecture,
+    "_config_",
+    config_id
+  )
+
+  pred_obj <- if (is.null(prediction_name)) {
+    paste0(config_state, "_external_pred")
+  } else {
+    prediction_name
+  }
+
+  # ---------------------------------------------------------------
+  # 3. Extract selected hyperparameters
+  # ---------------------------------------------------------------
+
+  n_tree <- as.integer(best_config$n_tree[[1]])
+  k <- as.numeric(best_config$k[[1]])
+  n_burn <- as.integer(best_config$n_burn[[1]])
+  n_samp <- as.integer(best_config$n_samp[[1]])
+  seed <- as.integer(best_config$seed[[1]])
+
+  # Architecture E has sync_every; F does not.
+  sync_every <- if ("sync_every" %in% names(best_config)) {
+    as.integer(best_config$sync_every[[1]])
+  } else {
+    1L
+  }
+
+  # ---------------------------------------------------------------
+  # 4. Fit selected architecture
+  # ---------------------------------------------------------------
+
+  if (verbose) {
+    message(
+      "[BestExternal] Fitting Architecture ", architecture,
+      " with n_tree=", n_tree,
+      ", k=", k,
+      ", burn=", n_burn,
+      ", save=", n_samp,
+      if (architecture == "E")
+        paste0(", sync_every=", sync_every)
+      else
+        ""
+    )
+  }
+
+  if (architecture == "E") {
+
+    fit <- ds.semiOPBARTTrainE(
+      data.name = data.name,
+      datasources = trainable_conns,
+
+      num_tree = n_tree,
+      k = k,
+      num_burn = n_burn,
+      num_save = n_samp,
+
+      sync_every = sync_every,
+      warmup_burn = warmup_burn,
+
+      nfilter_threshold = nfilter,
+      state_name = config_state,
+      seed = seed
+    )
+
+  } else {
+
+    if (is.null(x_features) || is.null(w_features)) {
+      stop(
+        "x_features and w_features are required for Architecture F"
+      )
+    }
+
+    formula_obj <- stats::as.formula(
+      paste(
+        outcome_col,
+        "~",
+        paste(x_features, collapse = " + ")
+      )
+    )
+
+    linear_formula_obj <- stats::as.formula(
+      paste(
+        "~",
+        paste(w_features, collapse = " + ")
+      )
+    )
+
+    site_fits <- ds.semiOPBARTFitF(
+      formula = formula_obj,
+      linear_formula = linear_formula_obj,
+
+      data.name = data.name,
+      datasources = trainable_conns,
+
+      num_tree = n_tree,
+      k = k,
+      num_burn = n_burn,
+      num_save = n_samp,
+
+      nfilter = nfilter,
+      state_name = config_state,
+      seed = seed
+    )
+
+    fit <- ds.semiOPBARTCombineF(
+      site_fits,
+      combine_method = combine_method
+    )
+
+    # Preserve the metadata needed below.
+    attr(fit, "site_fits") <- site_fits
+    attr(fit, "site_names") <- train_site_names
+    attr(fit, "state_name") <- config_state
+    attr(fit, "num_tree") <- n_tree
+    attr(fit, "k") <- k
+  }
+
+
+print("fit")
+print(fit)
+  # ---------------------------------------------------------------
+  # 5. Determine how many rows each trained site has
+  # ---------------------------------------------------------------
+site_n <- fit$site_n
+  # if (architecture == "E") {
+
+  #   if (is.null(fit$site_n)) {
+  #     stop(
+  #       "Architecture E fit does not contain site_n. ",
+  #       "Modify ds.semiOPBARTTrainE() to return site_n for selecting ",
+  #       "the largest trained reference site."
+  #     )
+  #   }
+
+  #   site_n <- fit$site_n
+
+  # } else {
+
+  #   site_fits <- attr(fit, "site_fits")
+
+  #   if (is.null(site_fits)) {
+  #     stop(
+  #       "Architecture F fit does not retain site_fits, so the largest ",
+  #       "reference site cannot be identified."
+  #     )
+  #   }
+
+  #   site_n <- vapply(
+  #     site_fits,
+  #     function(z) {
+
+  #       if (!is.null(z$n)) {
+  #         return(as.integer(z$n))
+  #       }
+
+  #       if (!is.null(z$n_total)) {
+  #         return(as.integer(z$n_total))
+  #       }
+
+  #       NA_integer_
+  #     },
+  #     integer(1)
+  #   )
+    print("site_n")
+    print(site_n)
+
+    #names(site_n) <- names(trainable_conns)
+
+    if (all(is.na(site_n))) {
+      stop(
+        "Could not determine the number of observations at Architecture F ",
+        "training sites."
+      )
+    }
+  #}
+
+  # ---------------------------------------------------------------
+  # 6. Largest trained site becomes reference site
+  # ---------------------------------------------------------------
+
+  # reference_site <- names(
+  #   site_n[which.max(site_n)]
+  # )
+   reference_site <- names(
+    trainable_conns[which.max(site_n)]
+  )
+  if (verbose) {
+    message(
+      "[BestExternal] Reference site: ",
+      reference_site,
+      " (n=", site_n[[reference_site]], ")"
+    )
+  }
+
+  # ---------------------------------------------------------------
+  # 7. Export forest + normalization from reference site
+  # ---------------------------------------------------------------
+
+  reference <- ds.semiOPBARTExportReferenceForest(
+    fit = if (architecture == "E") {
+      fit
+    } else {
+      list(
+        site_names = train_site_names,
+        state_name = config_state,
+        num_tree = n_tree
+      )
+    },
+    reference_site = reference_site,
+    datasources = trainable_conns
+  )
+# print("reference")
+# print(reference)
+  # ---------------------------------------------------------------
+  # 8. Select normalization reference
+  #
+  # For cross-site external prediction, global ECDF is preferred.
+  # local_ecdf is only a fallback.
+  # ---------------------------------------------------------------
+
+  if (
+    !is.null(reference$global_ecdf_Serialize) &&
+    isTRUE(reference$has_global_ecdf)
+  ) {
+
+    normalization_used <- "global_ecdf"
+
+  } else if (
+    !is.null(reference$local_ecdf_Serialize) &&
+    isTRUE(reference$has_local_ecdf)
+  ) {
+
+    normalization_used <- "local_ecdf"
+
+  } else {
+
+    stop(
+      "Reference site exported neither global_ecdf nor local_ecdf. ",
+      "External prediction cannot proceed."
+    )
+  }
+
+  # ---------------------------------------------------------------
+  # 9. Determine sites that did NOT train
+  # ---------------------------------------------------------------
+
+  external_site_names <- setdiff(
+    names(conns),
+    train_site_names
+  )
+
+  if (!length(external_site_names)) {
+
+    if (verbose) {
+      message(
+        "[BestExternal] All sites trained; no external prediction sites."
+      )
+    }
+
+    return(list(
+      fit = fit,
+      architecture = architecture,
+      reference = reference,
+      reference_site = reference_site,
+      site_n = site_n,
+      normalization_used = normalization_used,
+      external_sites = character(0),
+      predictions = NULL,
+      evaluation = NULL
+    ))
+  }
+
+  external_conns <- conns[external_site_names]
+
+  # ---------------------------------------------------------------
+  # 10. Obtain posterior draws
+  # ---------------------------------------------------------------
+  if (architecture == "E") {
+
+    theta_draws <- fit$theta_draws
+    us_draws <- fit$us_draws
+
+  } else {
+
+    # The combined F object should contain posterior draws.
+    theta_draws <- fit$theta_draws
+    us_draws <- fit$us_draws
+
+    if (is.null(theta_draws) || is.null(us_draws)) {
+
+      # Allow alternative naming used by some CombineF versions.
+      theta_draws <- fit$theta
+      us_draws <- fit$us
+    }
+
+    if (is.null(theta_draws) || is.null(us_draws)) {
+      stop(
+        "Architecture F combined fit does not contain theta/us posterior ",
+        "draws required for external prediction."
+      )
+    }
+  }
+
+  # ---------------------------------------------------------------
+  # 11. External prediction
+  # ---------------------------------------------------------------
+
+  if (verbose) {
+    message(
+      "[BestExternal] External prediction on: ",
+      paste(external_site_names, collapse = ", ")
+    )
+  }
+
+  prediction_result <- ds.semiOPBARTPredictExternal(
+    fit = list(
+      theta = theta_draws,
+      us = us_draws,
+      k = k
+    ),
+    reference = reference,
+    data.name_test = test_data.name,
+    outcome_col = outcome_col,
+
+    newobj_pred = pred_obj,
+    nfilter = nfilter,
+
+    datasources = external_conns,
+    seed = seed
+  )
+  print("prediction_result")
+  print(prediction_result)
+  # ---------------------------------------------------------------
+  # 12. Evaluate only when validation_col is supplied
+  # ---------------------------------------------------------------
+
+  evaluation <- NULL
+  #TODO: This is a bit of a hack. The prediction_result object should contain the truth column if it was supplied, but we also want to check if validation_col was supplied to this function. If both are present, we run evaluation.
+  if (!is.null(validation_col) && !is.null(prediction_result$truth))  {
+
+    # The server-side prediction object already contains truth.
+    # validation_col is retained here as the explicit indication that
+    # validation/evaluation was requested.
+    evaluation <- ds.semiOPBARTEvaluate(
+      pred_obj = pred_obj,
+      levels = levels,
+      nfilter = nfilter,
+      datasources = external_conns,
+      label = paste0(
+        architecture,
+        "_best_external_"
+      )
+    )
+  }
+  else {
+    if (verbose) {
+      message(
+        "[BestExternal] No validation_col supplied; skipping evaluation."
+      )
+    }
+  }
+
+  # ---------------------------------------------------------------
+  # 13. Always return predictions
+  # ---------------------------------------------------------------
+
+  list(
+    fit = fit,
+
+    architecture = architecture,
+
+    config = best_config,
+
+    reference = reference,
+    reference_site = reference_site,
+    reference_n = site_n[[reference_site]],
+
+    site_n = site_n,
+
+    train_sites = train_site_names,
+    external_sites = external_site_names,
+
+    normalization_used = normalization_used,
+
+    prediction_object = pred_obj,
+    prediction_result = prediction_result,
+
+    evaluation = evaluation
   )
 }
