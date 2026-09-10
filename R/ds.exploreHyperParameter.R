@@ -418,31 +418,27 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
                                                  verbose = TRUE) {
 
   combine_method <- match.arg(combine_method)
-
+ #res_F <- NULL
   if (verbose) message(sprintf(">>> %s: Architecture F (independent local fits)", model_label))
-  # res_F <- ds.semiOPBARTExploreHyperF(
-  #   conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
-  #   x_features = x_features, w_features = w_features, test_data.name = test_data.name,
-  #   n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
-  #   seed_range = seed_range, k_values = k_values, max_configs = max_configs,
-  #   nfilter = nfilter, combine_method = combine_method, verbose = verbose,
-  #   state_name = ".semiOPBART_hyper")
-  res_F <- NULL
-
-#   combined <- dplyr::bind_rows(res_F$results, NULL, NULL)
-#   combined$model <- model_label
-
-#   list(
-#     combined_results = combined,
-#     by_architecture = list(F = res_F),
-#     best_overall = combined[which.min(combined$test_mae), ],
-#     best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
-#       d[which.min(d$test_mae), ]
-#     }))
-#   )
-# }
-
-
+  res_F <- ds.semiOPBARTExploreHyperF(
+    conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
+    x_features = x_features, w_features = w_features, test_data.name = test_data.name,
+    n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
+    seed_range = seed_range, k_values = k_values, max_configs = max_configs,
+    nfilter = nfilter, combine_method = combine_method, verbose = verbose,
+    state_name = ".semiOPBART_hyper")
+ 
+  # combined <- dplyr::bind_rows(res_F$results, NULL, NULL)
+  # combined$model <- model_label
+  # 
+  # list(
+  #   combined_results = combined,
+  #   by_architecture = list(F = res_F),
+  #   best_overall = combined[which.min(combined$test_mae), ],
+  #   best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
+  #     d[which.min(d$test_mae), ]
+  #   }))
+  # )
 
 if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local trees)", model_label))
   res_E <- ds.semiOPBARTExploreHyperE(
@@ -452,6 +448,18 @@ if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local tr
     seed_range = seed_range,sync_every= sync_every, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, verbose = verbose,
     state_name = ".semiOPBART_hyper")
+
+  combined <- dplyr::bind_rows(res_F$results, res_E$results, NULL)
+  combined$model <- model_label
+
+  list(
+    combined_results = combined,
+    by_architecture = list(F = res_F, E = res_E, D = NULL),
+    best_overall = combined[which.min(combined$test_mae), ],
+    best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
+      d[which.min(d$test_mae), ]
+    }))
+  )
 
   # if (verbose) message(sprintf(">>> %s: Architecture D (tree swapping + theta/us pooling)", model_label))
   # res_D <- ds.semiOPBARTExploreHyperD(
@@ -474,17 +482,7 @@ if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local tr
   #   }))
   # )
 
-  combined <- dplyr::bind_rows(res_F$results, res_E$results, NULL)
-  combined$model <- model_label
 
-  list(
-    combined_results = combined,
-    by_architecture = list(F = res_F, E = res_E, D = NULL),
-    best_overall = combined[which.min(combined$test_mae), ],
-    best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
-      d[which.min(d$test_mae), ]
-    }))
-  )
 }
 
 
@@ -739,55 +737,50 @@ ds.semiOPBARTFitBestAndExternalPredict <- function(
   }
 
 
-print("fit")
-print(fit)
+# print("fit")
+# print(fit)
   # ---------------------------------------------------------------
   # 5. Determine how many rows each trained site has
   # ---------------------------------------------------------------
-site_n <- fit$site_n
-  # if (architecture == "E") {
+ site_n <- NULL
 
-  #   if (is.null(fit$site_n)) {
-  #     stop(
-  #       "Architecture E fit does not contain site_n. ",
-  #       "Modify ds.semiOPBARTTrainE() to return site_n for selecting ",
-  #       "the largest trained reference site."
-  #     )
-  #   }
+if (architecture == "E") {
 
-  #   site_n <- fit$site_n
+  site_n <- fit$site_n
 
-  # } else {
+} else {
 
-  #   site_fits <- attr(fit, "site_fits")
+  # Architecture F:
+  # site_n is stored inside each per-site fit.
+  site_fits_local <- attr(fit, "site_fits")
 
-  #   if (is.null(site_fits)) {
-  #     stop(
-  #       "Architecture F fit does not retain site_fits, so the largest ",
-  #       "reference site cannot be identified."
-  #     )
-  #   }
+  if (is.null(site_fits_local)) {
+    site_fits_local <- site_fits
+  }
 
-  #   site_n <- vapply(
-  #     site_fits,
-  #     function(z) {
+  site_n <- vapply(
+    site_fits_local,
+    function(x) {
+      if (is.null(x$site_n)) {
+        if (!is.null(x$n)) {
+          return(as.numeric(x$n))
+        }
+        stop("Architecture F site fit is missing site_n/n")
+      }
+      as.numeric(x$site_n)
+    },
+    numeric(1)
+  )
+}
 
-  #       if (!is.null(z$n)) {
-  #         return(as.integer(z$n))
-  #       }
+print("site_n")
+print(site_n)
 
-  #       if (!is.null(z$n_total)) {
-  #         return(as.integer(z$n_total))
-  #       }
+site_names <- names(site_n)
 
-  #       NA_integer_
-  #     },
-  #     integer(1)
-  #   )
-    print("site_n")
-    print(site_n)
-
-    #names(site_n) <- names(trainable_conns)
+if (is.null(site_names) || !length(site_names)) {
+  stop("Could not determine trained site names")
+}
 
     if (all(is.na(site_n))) {
       stop(
@@ -795,15 +788,12 @@ site_n <- fit$site_n
         "training sites."
       )
     }
-  #}
+  
 
   # ---------------------------------------------------------------
   # 6. Largest trained site becomes reference site
   # ---------------------------------------------------------------
 
-  # reference_site <- names(
-  #   site_n[which.max(site_n)]
-  # )
    reference_site <- names(
     trainable_conns[which.max(site_n)]
   )
@@ -842,11 +832,11 @@ site_n <- fit$site_n
   # ---------------------------------------------------------------
 
   if (
-    !is.null(reference$global_ecdf_Serialize) &&
-    isTRUE(reference$has_global_ecdf)
+    !is.null(reference$federated_ecdf_Serialize) &&
+    isTRUE(reference$has_federated_ecdf)
   ) {
 
-    normalization_used <- "global_ecdf"
+    normalization_used <- "federated_ecdf"
 
   } else if (
     !is.null(reference$local_ecdf_Serialize) &&
@@ -858,7 +848,7 @@ site_n <- fit$site_n
   } else {
 
     stop(
-      "Reference site exported neither global_ecdf nor local_ecdf. ",
+      "Reference site exported neither federated_ecdf nor local_ecdf. ",
       "External prediction cannot proceed."
     )
   }
@@ -903,13 +893,7 @@ site_n <- fit$site_n
     theta_draws <- fit$theta_draws
     us_draws <- fit$us_draws
 
-  } else {
-
-    # The combined F object should contain posterior draws.
-    theta_draws <- fit$theta_draws
-    us_draws <- fit$us_draws
-
-    if (is.null(theta_draws) || is.null(us_draws)) {
+  } else if (architecture == "F"){
 
       # Allow alternative naming used by some CombineF versions.
       theta_draws <- fit$theta
@@ -922,8 +906,7 @@ site_n <- fit$site_n
         "draws required for external prediction."
       )
     }
-  }
-
+  
   # ---------------------------------------------------------------
   # 11. External prediction
   # ---------------------------------------------------------------
@@ -951,8 +934,7 @@ site_n <- fit$site_n
     datasources = external_conns,
     seed = seed
   )
-  print("prediction_result")
-  print(prediction_result)
+
   # ---------------------------------------------------------------
   # 12. Evaluate only when validation_col is supplied
   # ---------------------------------------------------------------

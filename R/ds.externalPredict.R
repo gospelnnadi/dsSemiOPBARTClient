@@ -79,10 +79,10 @@ ds.semiOPBARTExportReferenceForest <- function(fit, reference_site, datasources 
       call("semiOPBARTLocalExportForestDS", fit$state_name))[[1]]
 
   if (is.null(out$local_ecdf_Serialize) &&
-    is.null(out$global_ecdf_Serialize)) {
+    is.null(out$federated_ecdf_Serialize)) {
   stop(
     "ds.semiOPBARTExportReferenceForest(): reference site exported ",
-    "neither local_ecdf nor global_ecdf."
+    "neither local_ecdf nor federated_ecdf."
   )
 }
   list(
@@ -90,10 +90,10 @@ ds.semiOPBARTExportReferenceForest <- function(fit, reference_site, datasources 
   num_tree = out$num_tree,
 
   local_ecdf_Serialize = out$local_ecdf_Serialize,
-  global_ecdf_Serialize = out$global_ecdf_Serialize,
+  federated_ecdf_Serialize = out$federated_ecdf_Serialize,
 
   has_local_ecdf = out$has_local_ecdf,
-  has_global_ecdf = out$has_global_ecdf,
+  has_federated_ecdf = out$has_federated_ecdf,
 
   reference_site = reference_site
 )
@@ -129,12 +129,19 @@ ds.semiOPBARTStageExternalReference <- function(
     reference,
     reference_name,
     datasources,
-    chunk_size = 4000
+    chunk_size = 4000,
+    quiet = TRUE
 ) {
 
   # ------------------------------------------------------------------
   # Validation
   # ------------------------------------------------------------------
+   # PERFORMANCE: suppress progress bars if quiet
+  if (quiet) {
+    old_progress <- getOption("datashield.progress")
+    options(datashield.progress = FALSE)
+    on.exit(options(datashield.progress = old_progress), add = TRUE)
+  }
 
   if (missing(reference)) {
     stop("reference is required")
@@ -209,19 +216,19 @@ ds.semiOPBARTStageExternalReference <- function(
   # ------------------------------------------------------------------
   # Select normalization reference
   #
-  # For cross-site external prediction, global_ecdf is preferred.
+  # For cross-site external prediction, federated_ecdf is preferred.
   # local_ecdf is only a fallback.
   # ------------------------------------------------------------------
 
   if (
-    isTRUE(reference$has_global_ecdf) &&
-    !is.null(reference$global_ecdf_Serialize)
+    isTRUE(reference$has_federated_ecdf) &&
+    !is.null(reference$federated_ecdf_Serialize)
   ) {
 
     ecdf_reference_Serialize <-
-      reference$global_ecdf_Serialize
+      reference$federated_ecdf_Serialize
 
-    normalization_used <- "global_ecdf"
+    normalization_used <- "federated_ecdf"
 
   } else if (
     isTRUE(reference$has_local_ecdf) &&
@@ -236,7 +243,7 @@ ds.semiOPBARTStageExternalReference <- function(
   } else {
 
     stop(
-      "Reference contains neither global_ecdf_Serialize nor ",
+      "Reference contains neither federated_ecdf_Serialize nor ",
       "local_ecdf_Serialize."
     )
   }
@@ -495,7 +502,7 @@ ds.semiOPBARTStageExternalReference <- function(
 #' @param global_range   REQUIRED if normalize_method = "federated_minmax":
 #'   output of ds.semiOPBARTComputeGlobalRange() (or
 #'   range_dict_to_global_range()) from the ORIGINAL training run
-#' @param global_ecdf    REQUIRED if normalize_method = "federated_ecdf":
+#' @param federated_ecdf    REQUIRED if normalize_method = "federated_ecdf":
 #'   output of ds.semiOPBARTComputeGlobalECDF() from the ORIGINAL training
 #'   run. Either way, this is the "global Z" being shipped -- explicit,
 #'   non-optional, because it's the ingredient that makes this function
@@ -524,28 +531,38 @@ ds.semiOPBARTPredictExternal <- function(
     newobj_pred = "semiOPBART_pred",
     nfilter = 5,
     datasources = NULL,
-    seed = 35
+    seed = 35,
+    quiet = TRUE
 ) {
 
   set.seed(seed)
+   # PERFORMANCE: suppress progress bars if quiet
+  if (quiet) {
+    old_progress <- getOption("datashield.progress")
+    options(datashield.progress = FALSE)
+    on.exit(options(datashield.progress = old_progress), add = TRUE)
+  }
 
   if (is.null(datasources)) {
     datasources <- DSI::datashield.connections_find()
   }
+  # print("fit")
+  # print(fit)
 
   # ---------------------------------------------------------------
   # Normalization reference MUST have been exported
   # ---------------------------------------------------------------
-
+   normalization_used <- "unknown"
   if (
-    !is.null(reference$global_ecdf_Serialize) &&
-    isTRUE(reference$has_global_ecdf)
+    !is.null(reference$federated_ecdf_Serialize) &&
+    isTRUE(reference$has_federated_ecdf)
   ) {
 
     ecdf_reference_Serialize <-
-      reference$global_ecdf_Serialize
+      reference$federated_ecdf_Serialize
 
-    normalization_used <- "global_ecdf"
+    normalization_used <- "federated_ecdf"
+    print("ds.semiOPBARTPredictExternal(): using federated_ecdf normalization")
 
   } else if (
     !is.null(reference$local_ecdf_Serialize) &&
@@ -556,12 +573,13 @@ ds.semiOPBARTPredictExternal <- function(
       reference$local_ecdf_Serialize
 
     normalization_used <- "local_ecdf"
+    print("ds.semiOPBARTPredictExternal(): using local_ecdf normalization")
 
   } else {
 
     stop(
       "ds.semiOPBARTPredictExternal(): reference contains neither ",
-      "global_ecdf nor local_ecdf."
+      "federated_ecdf nor local_ecdf."
     )
   }
 
@@ -575,48 +593,6 @@ ds.semiOPBARTPredictExternal <- function(
     )
   }
 
-
-
-  # message(
-  #   "ds.semiOPBARTPredictExternal(): reference site '",
-  #   reference$reference_site,
-  #   "'; forest=",
-  #   reference$num_tree,
-  #   " trees; normalization=",
-  #   normalization_used,
-  #   "; external sites: ",
-  #   paste(names(datasources), collapse = ", ")
-  # )
-  # print("ds.semiOPBARTPredictExternal(): reference site '")
-  # print(reference)
-  # print("ecdf_reference_Serialize:")
-  # print(ecdf_reference_Serialize)
-
-
-  # DSI::datashield.aggregate(
-  #   datasources,
-  #   call(
-  #     "semiOPBARTLocalPredictExternalDS",
-
-  #     semiOPBART_toSerialize(fit$theta),
-  #     semiOPBART_toSerialize(fit$us),
-
-  #     reference$trees_Serialize,
-  #     ecdf_reference_Serialize,
-
-  #     data.name_test,
-
-  #     reference$num_tree,
-  #     fit$k,
-
-  #     newobj_pred,
-  #     semiOPBART_toSerialize(levels),
-  #     nfilter,
-
-  #     seed = seed
-  #   )
-  # )
-
   staged <- ds.semiOPBARTStageExternalReference(
   reference = reference,
   reference_name = paste0(
@@ -625,6 +601,7 @@ ds.semiOPBARTPredictExternal <- function(
   ),
   datasources = datasources
 )
+
 DSI::datashield.aggregate(
   datasources,
   call(
@@ -636,6 +613,8 @@ DSI::datashield.aggregate(
     staged$reference_state_name,
 
     data.name_test,
+    staged$normalization_used,
+     
 
     as.integer(reference$num_tree),
     as.numeric(fit$k),
@@ -700,7 +679,7 @@ DSI::datashield.aggregate(
 # #' @param global_range   REQUIRED if normalize_method = "federated_minmax":
 # #'   output of ds.semiOPBARTComputeGlobalRange() (or
 # #'   range_dict_to_global_range()) from the ORIGINAL training run
-# #' @param global_ecdf    REQUIRED if normalize_method = "federated_ecdf":
+# #' @param federated_ecdf    REQUIRED if normalize_method = "federated_ecdf":
 # #'   output of ds.semiOPBARTComputeGlobalECDF() from the ORIGINAL training
 # #'   run. Either way, this is the "global Z" being shipped -- explicit,
 # #'   non-optional, because it's the ingredient that makes this function
@@ -722,7 +701,7 @@ DSI::datashield.aggregate(
 # #' @export
 # ds.semiOPBARTPredictExternal <- function(fit, reference, data.name_test, outcome_col,
 #                                           normalize_method = c("federated_minmax", "federated_ecdf"),
-#                                           global_range = NULL, global_ecdf = NULL,
+#                                           global_range = NULL, federated_ecdf = NULL,
 #                                           already_prepared = TRUE,
 #                                           x_features = NULL, w_features = NULL,
 #                                           levels = NULL, transform_recipe = "none",
@@ -734,8 +713,8 @@ DSI::datashield.aggregate(
 #     stop("global_range is required when normalize_method = 'federated_minmax' -- ",
 #          "pass the ds.semiOPBARTComputeGlobalRange()/range_dict_to_global_range() ",
 #          "result from the original training run")
-#   if (normalize_method == "federated_ecdf" && is.null(global_ecdf))
-#     stop("global_ecdf is required when normalize_method = 'federated_ecdf' -- ",
+#   if (normalize_method == "federated_ecdf" && is.null(federated_ecdf))
+#     stop("federated_ecdf is required when normalize_method = 'federated_ecdf' -- ",
 #          "pass the ds.semiOPBARTComputeGlobalECDF() result from the original ",
 #          "training run")
 #   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
@@ -759,7 +738,7 @@ DSI::datashield.aggregate(
 #                                  test.name = "semiOPBART_external_transformed",
 #                                  holdout.name = "null",
 #                                  normalize_method = normalize_method,
-#                                  global_range = global_range, global_ecdf = global_ecdf,
+#                                  global_range = global_range, federated_ecdf = federated_ecdf,
 #                                  nfilter = nfilter, datasources = datasources)
 #     data.name_test <- "semiOPBART_external_transformed"
 #   }
