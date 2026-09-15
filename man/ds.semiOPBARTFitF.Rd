@@ -18,7 +18,8 @@ ds.semiOPBARTFitF(
   num_save = 1000,
   nfilter = 5,
   state_name = ".semiOPBART_local_fit_F",
-  seed = 35
+  seed = 35,
+  sd = 1
 )
 }
 \arguments{

@@ -24,7 +24,8 @@ ds.semiOPBARTExploreHyperE(
   max_configs = NULL,
   nfilter = 5,
   verbose = TRUE,
-  state_name = ".semiOPBART_hyper"
+  state_name = ".semiOPBART_hyper",
+  sd = 1
 )
 }
 \arguments{

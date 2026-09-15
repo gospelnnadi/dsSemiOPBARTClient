@@ -169,7 +169,8 @@ ds.semiOPBARTTrainE <- function(data.name = "D_train", datasources = NULL,
                                    diagnose = TRUE,
                                    diagnose_every = 50,
                                    theta_alarm = 20,
-                                   us_alarm = 50) {
+                                   us_alarm = 50,
+                                    sd = 1) {
   set.seed(seed)
   threshold_method <- match.arg(threshold_method)
   
@@ -245,7 +246,8 @@ site_n <- setNames(vapply(site_meta, function(m) as.integer(m$n), integer(1)),
              J,
              threshold_method,
              state_name,
-             seed = seed))
+             seed = seed,
+              sd = sd))
     message(sprintf("[ds.semiOPBARTTrainE] Completed %d local sweeps (total %d/%d)", num_local_sweeps, total_sweeps_done + num_local_sweeps, N))
     total_sweeps_done <- total_sweeps_done + num_local_sweeps
 

@@ -131,17 +131,17 @@ ds.semiOPBARTTransform <- function(data.name, outcome_col, levels,
 
   # cat("w_features Serialize:\n")
   # cat(semiOPBART_toSerialize(w_features), "\n")
-  cl <- call(
-    "semiOPBARTLocalTransformDS",
-    data.name,
-    outcome_col,
-    semiOPBART_toSerialize(levels),
-    semiOPBART_toSerialize(x_features),
-    semiOPBART_toSerialize(w_features),
-    transform_recipe,
-    newobj,
-    nfilter
-  )
+  # cl <- call(
+  #   "semiOPBARTLocalTransformDS",
+  #   data.name,
+  #   outcome_col,
+  #   semiOPBART_toSerialize(levels),
+  #   semiOPBART_toSerialize(x_features),
+  #   semiOPBART_toSerialize(w_features),
+  #   transform_recipe,
+  #   newobj,
+  #   nfilter
+  # )
 
   # print(cl)
   # dput(cl)
@@ -346,20 +346,14 @@ ds.semiOPBARTComputeGlobalECDF <- function(global_range, num_bins = 30,
 ds.semiOPBARTNormalizeSplit <- function(train.name = "semiOPBART_train",
                                          test.name = "semiOPBART_test",
                                          holdout.name = "semiOPBART_holdout",
-                                         normalize_method = c("local_ecdf", "federated_minmax", "federated_ecdf"),
+                                         normalize_method = c("local_ecdf", "federated_ecdf"),
                                          global_range = NULL, global_ecdf = NULL,
                                          nfilter = 5, datasources = NULL) {
   normalize_method <- match.arg(normalize_method)
   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
 
   gmin_Serialize <- gmax_Serialize <- gecdf_Serialize <- "null"
-  if (normalize_method == "federated_minmax") {
-    if (is.null(global_range))
-      stop("normalize_method = 'federated_minmax' requires `global_range` ",
-           "from ds.semiOPBARTComputeGlobalRange() or range_dict_to_global_range()")
-    gmin_Serialize <- semiOPBART_toSerialize(global_range$global_min)
-    gmax_Serialize <- semiOPBART_toSerialize(global_range$global_max)
-  } else if (normalize_method == "federated_ecdf") {
+  if (normalize_method == "federated_ecdf") {
     if (is.null(global_ecdf))
       stop("normalize_method = 'federated_ecdf' requires `global_ecdf` ",
            "from ds.semiOPBARTComputeGlobalECDF()")
@@ -368,7 +362,7 @@ ds.semiOPBARTNormalizeSplit <- function(train.name = "semiOPBART_train",
 
   DSI::datashield.aggregate(datasources,
       call("semiOPBARTLocalNormalizeSplitDS", train.name, test.name, holdout.name,
-           normalize_method, gmin_Serialize, gmax_Serialize, gecdf_Serialize, nfilter))
+           normalize_method, gecdf_Serialize, nfilter))
 }
 
 # ---- convenience wrapper: the original single-call interface --------------
@@ -378,13 +372,13 @@ ds.semiOPBARTNormalizeSplit <- function(train.name = "semiOPBART_train",
 #' AFTER splitting, fitting on train only where applicable (see the
 #' section header above for why this order matters).
 #'
-#' @param normalize_method  "local_ecdf" (default), "federated_minmax", or
+#' @param normalize_method  "local_ecdf" (default), 
 #'   "federated_ecdf" (a genuinely pooled empirical CDF from aggregated
 #'   histogram bin counts -- see the section 2b header for why this is
 #'   preferable to federated_minmax when distribution SHAPE, not just
 #'   endpoints, matters, e.g. for Architecture D's tree-sharing).
 #' @param known_range  NULL (default): the global range needed for
-#'   "federated_minmax"/"federated_ecdf" is computed FROM THE DATA via
+#'   "federated_ecdf" is computed FROM THE DATA via
 #'   ds.semiOPBARTComputeGlobalRange() (exposes exact per-site extreme
 #'   values -- see that function's disclosure note). A named list of
 #'   c(min, max) per column (e.g. from a known clinical/domain range
@@ -404,20 +398,46 @@ ds.semiOPBARTNormalizeSplit <- function(train.name = "semiOPBART_train",
 ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
                                   x_features, w_features,
                                   transform_recipe = "none",
-                                  normalize_method = c("local_ecdf", "federated_minmax", "federated_ecdf"),
+                                  normalize_method = c("local_ecdf", "federated_ecdf"),
                                   known_range = NULL, num_ecdf_bins = 30,
                                   custom_bin_edges = NULL,
                                   site_roles = NULL, train_ratio = NULL, seed = NULL,
                                   newobj_train = "semiOPBART_train",
                                   newobj_test = "semiOPBART_test",
                                   newobj_holdout = "semiOPBART_holdout",
-                                  nfilter = 5, datasources = NULL) {
+                                  nfilter = 5, datasources = NULL,    
+                                  remove_rare_classes = TRUE,#FALSE,
+                                  remove_classes_below = 15,# NULL,
+                                  balance_classes = FALSE,
+                                  balance_target = 5
+                                  ) {
 
   normalize_method <- match.arg(normalize_method)
   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
   if (nfilter < 1) stop("nfilter must be >= 1; it is the minimum POOLED count per bin.")
+  if (remove_rare_classes) {
 
-  ds.semiOPBARTTransform(data.name, outcome_col, levels, x_features, w_features,
+  if (is.null(remove_classes_below))
+    stop(
+      "`remove_classes_below` must be supplied when ",
+      "`remove_rare_classes = TRUE`."
+    )
+
+  rare_result <- ds.semiOPBARTRemoveRareClasses( data.name = data.name, outcome_col = outcome_col, 
+  levels = levels, remove_classes_below = remove_classes_below,
+     newobj = "semiOPBART_filtered",  datasources = datasources
+  )
+  transform_data_name <- "semiOPBART_filtered"
+  # use the levels that survived the pooled filtering
+  levels <- rare_result$updated_levels
+} else {
+  rare_result <- NULL
+  transform_data_name <- data.name
+  }
+  # ds.semiOPBARTTransform(data.name, outcome_col, levels, x_features, w_features,
+  #                         transform_recipe, newobj = "semiOPBART_transformed",
+  #                         nfilter = nfilter, datasources = datasources)
+  ds.semiOPBARTTransform(transform_data_name, outcome_col, levels, x_features, w_features,
                           transform_recipe, newobj = "semiOPBART_transformed",
                           nfilter = nfilter, datasources = datasources)
   print("ds.semiOPBARTPrepare(): transform complete, now splitting train/test/holdout...")
@@ -425,10 +445,11 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
       data.name = "semiOPBART_transformed", outcome_col = outcome_col,
       site_roles = site_roles, train_ratio = train_ratio, seed = seed,
       newobj_train = newobj_train, newobj_test = newobj_test,
-      newobj_holdout = newobj_holdout, nfilter = nfilter, datasources = datasources)
+      newobj_holdout = newobj_holdout, nfilter = nfilter, datasources = datasources,levels,
+      balance_classes = balance_classes, balance_target = balance_target,  balance_seed = seed)
 
   global_range <- NULL; global_ecdf <- NULL
-  if (normalize_method %in% c("federated_minmax", "federated_ecdf") &&
+  if (normalize_method %in% c("federated_ecdf") &&
       length(split_plan$train_sites)) {
     global_range <- if (!is.null(known_range)) {
       message("ds.semiOPBARTPrepare(): using a KNOWN range dictionary -- no ",
@@ -458,7 +479,7 @@ print("ds.semiOPBARTPrepare(): all steps complete.")
   # against.
   list(split_plan = split_plan, per_site = norm_result,
        normalize_method = normalize_method,
-       global_range = global_range, global_ecdf = global_ecdf)
+       global_range = global_range, global_ecdf = global_ecdf,  levels=levels)
 }
 
 # =====================  SPLIT (unchanged logic, Serialize-safe args) =============
@@ -482,7 +503,12 @@ ds.semiOPBARTSplit <- function(data.name = "semiOPBART_transformed", outcome_col
                                 newobj_train = "semiOPBART_train",
                                 newobj_test  = "semiOPBART_test",
                                 newobj_holdout = "semiOPBART_holdout",
-                                nfilter = 5, datasources = NULL) {
+                                nfilter = 5, datasources = NULL,
+                                levels=0:4,
+                                balance_classes = FALSE,
+                                balance_target = 8,
+                                balance_seed = NULL
+) {
   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
   site_names <- names(datasources)
   if (is.null(site_names)) stop("datasources must be named so sites can be ",
@@ -510,7 +536,7 @@ ds.semiOPBARTSplit <- function(data.name = "semiOPBART_transformed", outcome_col
     if (role == "train") {
       DSI::datashield.aggregate(ds1, call("semiOPBARTLocalSplitDS", data.name,
           outcome_col, NULL, seed, newobj_train, newobj_test, newobj_holdout,
-          nfilter))[[1]]
+          nfilter,levels,balance_classes,balance_target, balance_seed))[[1]]
     } else if (role == "test") {
       c(DSI::datashield.aggregate(ds1,
           call("semiOPBARTLocalAsTestDS", data.name, newobj_test, newobj_holdout,
@@ -519,7 +545,7 @@ ds.semiOPBARTSplit <- function(data.name = "semiOPBART_transformed", outcome_col
     } else {
       DSI::datashield.aggregate(ds1, call("semiOPBARTLocalSplitDS", data.name,
           outcome_col, ratio_for(site), seed, newobj_train, newobj_test,
-          newobj_holdout, nfilter))[[1]]
+          newobj_holdout, nfilter,levels, balance_classes,balance_target, balance_seed))[[1]]
     }
   })
   names(raw_results) <- site_names
@@ -549,4 +575,130 @@ ds.semiOPBARTSplit <- function(data.name = "semiOPBART_transformed", outcome_col
        train_sites = site_names[effective_roles %in% c("train", "split")],
        test_sites = test_sites, holdout_sites = holdout_sites,
        site_roles = site_roles, effective_roles = effective_roles)
+}
+
+
+# ============================================================
+# CLIENT-SIDE POOLED RARE-CLASS FILTERING
+# ============================================================
+
+#' Compute class counts pooled across all supplied sites.
+#'
+#' Only aggregate class counts are returned from each site.
+#' Classes whose pooled count is below `remove_classes_below`
+#' can subsequently be removed from every site.
+#'
+#' @export
+ds.semiOPBARTComputeGlobalClassCounts <- function(
+    data.name,
+    outcome_col,
+    levels,
+    datasources = NULL) {
+
+  if (is.null(datasources)) {
+    datasources <- DSI::datashield.connections_find()
+  }
+
+  requested_levels <- as.character(levels)
+
+  results <- DSI::datashield.aggregate(
+    datasources,
+    call(
+      "semiOPBARTLocalClassCountsDS",
+      data.name,
+      outcome_col,
+      requested_levels
+    )
+  )
+
+  # Do NOT compare site-returned factor levels.
+  # Every site is now guaranteed to return counts
+  # in exactly requested_levels order.
+  counts <- Reduce(
+    `+`,
+    lapply(results, function(x) {
+      if (length(x$counts) != length(requested_levels)) {
+        stop("Site returned an invalid number of class counts.")
+      }
+
+      as.numeric(x$counts)
+    })
+  )
+
+  names(counts) <- requested_levels
+
+  list(
+    levels = requested_levels,
+    counts = counts
+  )
+}
+
+#' Remove outcome classes whose pooled count across all sites is
+#' below a specified threshold.
+#'
+#' The pooled class counts are computed first. The corresponding
+#' class labels are then sent to every site, and each site removes
+#' those rows locally.
+#'
+#' Unlabeled rows are retained.
+#'
+#' @export
+ds.semiOPBARTRemoveRareClasses <- function(
+    data.name,
+    outcome_col,
+    levels,
+    remove_classes_below,
+    newobj = "semiOPBART_filtered",
+    datasources = NULL) {
+
+  if (is.null(datasources)) {
+    datasources <- DSI::datashield.connections_find()
+  }
+
+  if (length(remove_classes_below) != 1L ||
+      !is.numeric(remove_classes_below) ||
+      is.na(remove_classes_below) ||
+      remove_classes_below < 0) {
+    stop("remove_classes_below must be a single non-negative number.")
+  }
+
+  levels <- as.character(levels)
+
+  # Get pooled counts using the original requested levels
+  global_counts <- ds.semiOPBARTComputeGlobalClassCounts(
+    data.name = data.name,
+    outcome_col = outcome_col,
+    levels = levels,
+    datasources = datasources
+  )
+
+  # Classes to remove
+  remove_levels <- global_counts$levels[
+    global_counts$counts < remove_classes_below
+  ]
+
+  # Levels remaining after rare-class removal
+  updated_levels <- global_counts$levels[
+    global_counts$counts >= remove_classes_below
+  ]
+
+  # Remove rare classes at every site
+  per_site <- DSI::datashield.aggregate(
+    datasources,
+    call(
+      "semiOPBARTLocalRemoveClassesDS",
+      data.name,
+      outcome_col,
+      remove_levels,
+      newobj
+    )
+  )
+
+  list(
+    global_counts = global_counts,
+    removed_classes = remove_levels,
+    updated_levels = updated_levels,
+    threshold = remove_classes_below,
+    per_site = per_site
+  )
 }

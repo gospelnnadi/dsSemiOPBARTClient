@@ -48,7 +48,7 @@ ds.semiOPBARTFitF <- function(formula, linear_formula,
                               datasources = NULL,
                               num_tree = 20, k = 1,
                               num_burn = 1000, num_save = 1000,
-                              nfilter = 5, state_name = ".semiOPBART_local_fit_F", seed = 35) {
+                              nfilter = 5, state_name = ".semiOPBART_local_fit_F", seed = 35, sd = 1) {
   set.seed(seed)
   
   # ---- FILTER: Only connections with train object ----
@@ -71,7 +71,7 @@ ds.semiOPBARTFitF <- function(formula, linear_formula,
   site_fits <- DSI::datashield.aggregate(trainable_conns,
       call("semiOPBARTLocalFitFDS", semiOPBART_toSerialize(deparse1(formula)),
            semiOPBART_toSerialize(deparse1(linear_formula)),
-           data.name, num_tree, k, num_burn, num_save, nfilter, state_name, seed = seed))
+           data.name, num_tree, k, num_burn, num_save, nfilter, state_name, seed = seed,  sd = sd))
 
   attr(site_fits, "linear_formula") <- linear_formula
   attr(site_fits, "data.name") <- data.name

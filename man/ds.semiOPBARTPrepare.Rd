@@ -14,7 +14,7 @@ ds.semiOPBARTPrepare(
   x_features,
   w_features,
   transform_recipe = "none",
-  normalize_method = c("local_ecdf", "federated_minmax", "federated_ecdf"),
+  normalize_method = c("local_ecdf", "federated_ecdf"),
   known_range = NULL,
   num_ecdf_bins = 30,
   custom_bin_edges = NULL,
@@ -25,18 +25,22 @@ ds.semiOPBARTPrepare(
   newobj_test = "semiOPBART_test",
   newobj_holdout = "semiOPBART_holdout",
   nfilter = 5,
-  datasources = NULL
+  datasources = NULL,
+  remove_rare_classes = TRUE,
+  remove_classes_below = 15,
+  balance_classes = FALSE,
+  balance_target = 5
 )
 }
 \arguments{
-\item{normalize_method}{"local_ecdf" (default), "federated_minmax", or
+\item{normalize_method}{"local_ecdf" (default), 
 "federated_ecdf" (a genuinely pooled empirical CDF from aggregated
 histogram bin counts -- see the section 2b header for why this is
 preferable to federated_minmax when distribution SHAPE, not just
 endpoints, matters, e.g. for Architecture D's tree-sharing).}
 
 \item{known_range}{NULL (default): the global range needed for
-"federated_minmax"/"federated_ecdf" is computed FROM THE DATA via
+"federated_ecdf" is computed FROM THE DATA via
 ds.semiOPBARTComputeGlobalRange() (exposes exact per-site extreme
 values -- see that function's disclosure note). A named list of
 c(min, max) per column (e.g. from a known clinical/domain range

@@ -23,7 +23,8 @@ ds.semiOPBARTExploreHyperF(
   nfilter = 5,
   combine_method = c("random_effects", "inverse_variance", "stack"),
   verbose = TRUE,
-  state_name = ".semiOPBART_hyper"
+  state_name = ".semiOPBART_hyper",
+  sd = 1
 )
 }
 \arguments{

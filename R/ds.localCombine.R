@@ -31,238 +31,242 @@
 # something -- right now it's confounded by whichever of these is live.
 # ---------------------------------------------------------------------------
 
-# #' @param site_fits      output of ds.semiOPBARTFitF()
-# #' @param combine_method "inverse_variance" (precision-weighted average --
-# #'   treats each site's local posterior as an independent noisy estimate of
-# #'   one shared truth) or "stack" (n- or equal-weighted mixture).
-# #' @param weight_by_n   used only for combine_method = "stack".
+#' @param site_fits      output of ds.semiOPBARTFitF()
+#' @param combine_method "inverse_variance" (precision-weighted average --
+#'   treats each site's local posterior as an independent noisy estimate of
+#'   one shared truth) or "stack" (n- or equal-weighted mixture).
+#' @param weight_by_n   used only for combine_method = "stack".
+#' @export
+ds.semiOPBARTCombineF <- function(site_fits,
+                                  combine_method = c("inverse_variance", "stack"),
+                                  weight_by_n = TRUE) {
+  combine_method <- match.arg(combine_method)
+
+  # SINGLE-SITE SHORT-CIRCUIT: with only one contributor, every weighting
+  # scheme below is mathematically a no-op anyway (weight = 1;
+  # inverse-variance pooling of a single precision matrix returns that
+  # same matrix, solve(solve(theta_cov)) == theta_cov up to floating-
+  # point noise) -- but routing through solve()/Reduce() regardless adds
+  # real risk for zero benefit: a single site's theta_cov can be poorly
+  # conditioned in a way that's harmless as a plain value but produces a
+  # numerically noisy round trip through two solve() calls. Skip
+  # straight to returning that site's own values, unchanged.
+  #
+  # This also makes a 1-site "federated" run byte-for-byte identical to
+  # that site's own ds.semiOPBARTFitF() output, which matters for
+  # diagnosing federated-vs-local performance gaps -- see the extended
+  # note in this file's header on why isolating this case is the right
+  # FIRST step before concluding anything about whether combining
+  # multiple sites helps or hurts.
+  if (length(site_fits) == 1) {
+    print("Number of sites is 1. No combine parameters")
+    print("")
+    s <- site_fits[[1]]
+    return(list(theta = s$theta_mean, theta_cov = s$theta_cov,
+                us = s$us_mean, var_counts = s$var_counts_mean,
+                weights_used = 1,
+                per_site_fits = site_fits, combine_method = combine_method,
+                linear_formula = attr(site_fits, "linear_formula"),
+                state_name = attr(site_fits, "state_name")))
+  }
+
+  n <- vapply(site_fits, `[[`, numeric(1), "n")
+  w <- if (weight_by_n) n / sum(n) else rep(1 / length(site_fits), length(site_fits))
+
+  theta_combined <- if (combine_method == "inverse_variance") {
+    precisions <- lapply(site_fits, function(s) solve(s$theta_cov))
+    V <- solve(Reduce(`+`, precisions))
+    as.numeric(V %*% Reduce(`+`, Map(function(s, P) P %*% s$theta_mean,
+                                     site_fits, precisions)))
+  } else {
+    Reduce(`+`, Map(function(s, wi) wi * s$theta_mean, site_fits, w))
+  }
+  # theta_cov: was computed above (as V) for inverse-variance but only ever
+  # used internally and then discarded -- keep it, and give "stack" a
+  # reasonable equivalent (weighted mixture of the site covariances; not
+  # exact since it ignores between-site mean disagreement, but a real
+  # uncertainty estimate is more useful to an explainability plot than
+  # none at all). Used by semiOPBART_explainCoefficients() for F's
+  # coefficient forest plot -- see dsSemiOPBARTExplain.R.
+  theta_cov_combined <- if (combine_method == "inverse_variance") {
+    V
+  } else {
+    Reduce(`+`, Map(function(s, wi) wi^2 * s$theta_cov, site_fits, w))
+  }
+  us_combined <- Reduce(`+`, Map(function(s, wi) wi * s$us_mean, site_fits, w))
+
+  # var_counts_mean: only present if every site's semiOPBARTLocalFitFDS()
+  # is new enough to return it -- fall back to NULL (not an error) so an
+  # older/mixed-version deployment still combines theta/us fine, it just
+  # won't get a variable-importance plot.
+  has_var_counts <- all(vapply(site_fits, function(s) !is.null(s$var_counts_mean), logical(1)))
+  var_counts_combined <- if (has_var_counts) {
+    Reduce(`+`, Map(function(s, wi) wi * s$var_counts_mean, site_fits, w))
+  } else NULL
+
+  list(theta = theta_combined, theta_cov = theta_cov_combined,
+       us = us_combined, var_counts = var_counts_combined,
+       weights_used = w,
+       per_site_fits = site_fits, combine_method = combine_method,
+       linear_formula = attr(site_fits, "linear_formula"),
+       state_name = attr(site_fits, "state_name"))
+}
+
+
+
+# #' Combine per-site sufficient statistics into one global draw.
+# #'
+# #' theta is sampled from the posterior implied by the aggregated
+# #' W'W and W'Z* sufficient statistics:
+# #'
+# #'   WtW  = sum_s W_s' W_s
+# #'   WtZr = sum_s W_s' Z*_s
+# #'
+# #'   theta_hat   = solve(WtW, WtZr)
+# #'   theta_sigma = solve(WtW)
+# #'
+# #' Thresholds are updated from the aggregated per-site threshold
+# #' statistics using update_thresholds_from_site_stats().
+# #'
+# #' @param site_fits output of ds.semiOPBARTFitF()
 # #' @export
-# ds.semiOPBARTCombineF <- function(site_fits,
-#                                   combine_method = c("inverse_variance", "stack"),
+# ds.semiOPBARTCombineF <- function(site_fits,combine_method = c("inverse_variance", "stack"),
 #                                   weight_by_n = TRUE) {
-#   combine_method <- match.arg(combine_method)
 
-#   # SINGLE-SITE SHORT-CIRCUIT: with only one contributor, every weighting
-#   # scheme below is mathematically a no-op anyway (weight = 1;
-#   # inverse-variance pooling of a single precision matrix returns that
-#   # same matrix, solve(solve(theta_cov)) == theta_cov up to floating-
-#   # point noise) -- but routing through solve()/Reduce() regardless adds
-#   # real risk for zero benefit: a single site's theta_cov can be poorly
-#   # conditioned in a way that's harmless as a plain value but produces a
-#   # numerically noisy round trip through two solve() calls. Skip
-#   # straight to returning that site's own values, unchanged.
+#   if (length(site_fits) == 0) {
+#     stop("site_fits must contain at least one site result.")
+#   }
+#   # ------------------------------------------------------------
+#   # 1. AGGREGATE theta sufficient statistics across sites
+#   # ------------------------------------------------------------
+
+#   WtW_list <- lapply(site_fits, `[[`, "WtW")
+#   WtZr_list <- lapply(site_fits, `[[`, "WtZr")
+
+#   if (any(vapply(WtW_list, is.null, logical(1)))) {
+#     stop("At least one site is missing WtW.")
+#   }
+
+#   if (any(vapply(WtZr_list, is.null, logical(1)))) {
+#     stop("At least one site is missing WtZr.")
+#   }
+
+#   WtW <- Reduce(`+`, WtW_list)
+#   WtZr <- Reduce(`+`, WtZr_list)
+
+#   # Posterior mean/covariance implied by the pooled sufficient
+#   # statistics.
+#   theta_hat <- solve(WtW, WtZr)
+#   theta_sigma <- solve(WtW)
+
+#   # Draw the global theta.
+#   theta <- as.numeric(
+#     mvtnorm::rmvnorm(
+#       1,
+#       mean = theta_hat,
+#       sigma = theta_sigma
+#     )
+#   )
+
+#   # ------------------------------------------------------------
+#   # 2. AGGREGATE threshold statistics across sites
+#   # ------------------------------------------------------------
+
+#   th_stats <- lapply(site_fits, `[[`, "th_stats")
+
+#   if (any(vapply(th_stats, is.null, logical(1)))) {
+#     stop("At least one site is missing th_stats.")
+#   }
+
+#   print(
+#     paste0(
+#       "LocalMCMC: length of theta_hat ",
+#       length(theta_hat)
+#     )
+#   )
+# if (length(site_fits) == 1) {
+#   #     print("Number of sites is 1. No combine parameters")
+#   #     print("")
+#   us <-site_fits[[1]]$us_mean
+# }else{ 
+#   # Start from the previous/global threshold vector.
 #   #
-#   # This also makes a 1-site "federated" run byte-for-byte identical to
-#   # that site's own ds.semiOPBARTFitF() output, which matters for
-#   # diagnosing federated-vs-local performance gaps -- see the extended
-#   # note in this file's header on why isolating this case is the right
-#   # FIRST step before concluding anything about whether combining
-#   # multiple sites helps or hurts.
-#   if (length(site_fits) == 1) {
-#     print("Number of sites is 1. No combine parameters")
-#     print("")
-#     s <- site_fits[[1]]
-#     return(list(theta = s$theta_mean, theta_cov = s$theta_cov,
-#                 us = s$us_mean, var_counts = s$var_counts_mean,
-#                 weights_used = 1,
-#                 per_site_fits = site_fits, combine_method = combine_method,
-#                 linear_formula = attr(site_fits, "linear_formula"),
-#                 state_name = attr(site_fits, "state_name")))
+#   # If the caller already supplies a previous global threshold,
+#   # use that instead. Otherwise use the first site's thresholds
+#   # as the initial state.
+#   us_prev <- site_fits[[1]]$us_mean
+
+#   if (is.null(us_prev)) {
+#     stop("No previous global threshold vector (us_mean) was found.")
 #   }
 
-#   n <- vapply(site_fits, `[[`, numeric(1), "n")
-#   w <- if (weight_by_n) n / sum(n) else rep(1 / length(site_fits), length(site_fits))
-
-#   theta_combined <- if (combine_method == "inverse_variance") {
-#     precisions <- lapply(site_fits, function(s) solve(s$theta_cov))
-#     V <- solve(Reduce(`+`, precisions))
-#     as.numeric(V %*% Reduce(`+`, Map(function(s, P) P %*% s$theta_mean,
-#                                      site_fits, precisions)))
-#   } else {
-#     Reduce(`+`, Map(function(s, wi) wi * s$theta_mean, site_fits, w))
-#   }
-#   # theta_cov: was computed above (as V) for inverse-variance but only ever
-#   # used internally and then discarded -- keep it, and give "stack" a
-#   # reasonable equivalent (weighted mixture of the site covariances; not
-#   # exact since it ignores between-site mean disagreement, but a real
-#   # uncertainty estimate is more useful to an explainability plot than
-#   # none at all). Used by semiOPBART_explainCoefficients() for F's
-#   # coefficient forest plot -- see dsSemiOPBARTExplain.R.
-#   theta_cov_combined <- if (combine_method == "inverse_variance") {
-#     V
-#   } else {
-#     Reduce(`+`, Map(function(s, wi) wi^2 * s$theta_cov, site_fits, w))
-#   }
-#   us_combined <- Reduce(`+`, Map(function(s, wi) wi * s$us_mean, site_fits, w))
-
-#   # var_counts_mean: only present if every site's semiOPBARTLocalFitFDS()
-#   # is new enough to return it -- fall back to NULL (not an error) so an
-#   # older/mixed-version deployment still combines theta/us fine, it just
-#   # won't get a variable-importance plot.
-#   has_var_counts <- all(vapply(site_fits, function(s) !is.null(s$var_counts_mean), logical(1)))
-#   var_counts_combined <- if (has_var_counts) {
-#     Reduce(`+`, Map(function(s, wi) wi * s$var_counts_mean, site_fits, w))
-#   } else NULL
-
-#   list(theta = theta_combined, theta_cov = theta_cov_combined,
-#        us = us_combined, var_counts = var_counts_combined,
-#        weights_used = w,
-#        per_site_fits = site_fits, combine_method = combine_method,
-#        linear_formula = attr(site_fits, "linear_formula"),
-#        state_name = attr(site_fits, "state_name"))
+#   us <- update_thresholds_from_site_stats(
+#     th_stats,
+#     us_prev
+#   )
 # }
 
+#   # ------------------------------------------------------------
+#   # 3. Aggregate variable counts if available
+#   # ------------------------------------------------------------
 
+#   has_var_counts <- all(
+#     vapply(
+#       site_fits,
+#       function(s) !is.null(s$var_counts_mean),
+#       logical(1)
+#     )
+#   )
 
-#' Combine per-site sufficient statistics into one global draw.
-#'
-#' theta is sampled from the posterior implied by the aggregated
-#' W'W and W'Z* sufficient statistics:
-#'
-#'   WtW  = sum_s W_s' W_s
-#'   WtZr = sum_s W_s' Z*_s
-#'
-#'   theta_hat   = solve(WtW, WtZr)
-#'   theta_sigma = solve(WtW)
-#'
-#' Thresholds are updated from the aggregated per-site threshold
-#' statistics using update_thresholds_from_site_stats().
-#'
-#' @param site_fits output of ds.semiOPBARTFitF()
-#' @export
-ds.semiOPBARTCombineF <- function(site_fits,combine_method = c("inverse_variance", "stack"),
-                                  weight_by_n = TRUE) {
+#   var_counts_combined <- if (has_var_counts) {
+#     n <- vapply(site_fits, `[[`, numeric(1), "n")
+#     w <- n / sum(n)
 
-  if (length(site_fits) == 0) {
-    stop("site_fits must contain at least one site result.")
-  }
+#     Reduce(
+#       `+`,
+#       Map(
+#         function(s, wi) wi * s$var_counts_mean,
+#         site_fits,
+#         w
+#       )
+#     )
+#   } else {
+#     NULL
+#   }
 
-  # ------------------------------------------------------------
-  # 1. AGGREGATE theta sufficient statistics across sites
-  # ------------------------------------------------------------
+#   # ------------------------------------------------------------
+#   # 4. Return global state
+#   # ------------------------------------------------------------
 
-  WtW_list <- lapply(site_fits, `[[`, "WtW")
-  WtZr_list <- lapply(site_fits, `[[`, "WtZr")
+#   list(
+#     theta = theta,
+#     theta_hat = theta_hat,
+#     theta_cov = theta_sigma,
 
-  if (any(vapply(WtW_list, is.null, logical(1)))) {
-    stop("At least one site is missing WtW.")
-  }
+#     # Keep sufficient statistics too, since they are the actual
+#     # quantities used to generate the global theta draw.
+#     WtW = WtW,
+#     WtZr = WtZr,
 
-  if (any(vapply(WtZr_list, is.null, logical(1)))) {
-    stop("At least one site is missing WtZr.")
-  }
+#     us = us,
 
-  WtW <- Reduce(`+`, WtW_list)
-  WtZr <- Reduce(`+`, WtZr_list)
+#     var_counts = var_counts_combined,
 
-  # Posterior mean/covariance implied by the pooled sufficient
-  # statistics.
-  theta_hat <- solve(WtW, WtZr)
-  theta_sigma <- solve(WtW)
+#     per_site_fits = site_fits,
 
-  # Draw the global theta.
-  theta <- as.numeric(
-    mvtnorm::rmvnorm(
-      1,
-      mean = theta_hat,
-      sigma = theta_sigma
-    )
-  )
+#     combine_method = "aggregate_sufficient_statistics",
 
-  # ------------------------------------------------------------
-  # 2. AGGREGATE threshold statistics across sites
-  # ------------------------------------------------------------
+#     linear_formula = attr(
+#       site_fits,
+#       "linear_formula"
+#     ),
 
-  th_stats <- lapply(site_fits, `[[`, "th_stats")
-
-  if (any(vapply(th_stats, is.null, logical(1)))) {
-    stop("At least one site is missing th_stats.")
-  }
-
-  print(
-    paste0(
-      "LocalMCMC: length of theta_hat ",
-      length(theta_hat)
-    )
-  )
-
-  # Start from the previous/global threshold vector.
-  #
-  # If the caller already supplies a previous global threshold,
-  # use that instead. Otherwise use the first site's thresholds
-  # as the initial state.
-  us_prev <- site_fits[[1]]$us_mean
-
-  if (is.null(us_prev)) {
-    stop("No previous global threshold vector (us_mean) was found.")
-  }
-
-  us <- update_thresholds_from_site_stats(
-    th_stats,
-    us_prev
-  )
-
-  # ------------------------------------------------------------
-  # 3. Aggregate variable counts if available
-  # ------------------------------------------------------------
-
-  has_var_counts <- all(
-    vapply(
-      site_fits,
-      function(s) !is.null(s$var_counts_mean),
-      logical(1)
-    )
-  )
-
-  var_counts_combined <- if (has_var_counts) {
-    n <- vapply(site_fits, `[[`, numeric(1), "n")
-    w <- n / sum(n)
-
-    Reduce(
-      `+`,
-      Map(
-        function(s, wi) wi * s$var_counts_mean,
-        site_fits,
-        w
-      )
-    )
-  } else {
-    NULL
-  }
-
-  # ------------------------------------------------------------
-  # 4. Return global state
-  # ------------------------------------------------------------
-
-  list(
-    theta = theta,
-    theta_hat = theta_hat,
-    theta_cov = theta_sigma,
-
-    # Keep sufficient statistics too, since they are the actual
-    # quantities used to generate the global theta draw.
-    WtW = WtW,
-    WtZr = WtZr,
-
-    us = us,
-
-    var_counts = var_counts_combined,
-
-    per_site_fits = site_fits,
-
-    combine_method = "aggregate_sufficient_statistics",
-
-    linear_formula = attr(
-      site_fits,
-      "linear_formula"
-    ),
-
-    state_name = attr(
-      site_fits,
-      "state_name"
-    )
-  )
-}
+#     state_name = attr(
+#       site_fits,
+#       "state_name"
+#     )
+#   )
+# }
 
 
 

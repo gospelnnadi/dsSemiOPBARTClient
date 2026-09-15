@@ -27,7 +27,8 @@ ds.semiOPBARTExploreHyperparameters(
   combine_method = c("inverse_variance", "random_effects", "stack"),
   max_configs = NULL,
   nfilter = 0,
-  verbose = TRUE
+  verbose = TRUE,
+  sd = 1
 )
 }
 \arguments{

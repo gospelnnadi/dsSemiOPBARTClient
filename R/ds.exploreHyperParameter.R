@@ -157,7 +157,7 @@ ds.semiOPBARTExploreHyperF <- function(conns,
                                         nfilter = 5,
                                         combine_method = c("random_effects", "inverse_variance", "stack"),
                                         verbose = TRUE,
-                                        state_name = ".semiOPBART_hyper") {
+                                        state_name = ".semiOPBART_hyper", sd=1) {
 
   combine_method <- match.arg(combine_method)
   if (is.null(conns)) conns <- DSI::datashield.connections_find()
@@ -199,7 +199,7 @@ ds.semiOPBARTExploreHyperF <- function(conns,
         data.name = data.name, datasources = trainable_conns,
         num_tree = as.integer(params$n_tree), k = params$k,
         num_burn = as.integer(params$n_burn), num_save = as.integer(params$n_samp),
-        nfilter = nfilter, state_name = config_state, seed = as.integer(params$seed))
+        nfilter = nfilter, state_name = config_state, seed = as.integer(params$seed),sd=sd)
     }, i, "fit (ds.semiOPBARTFitF)")
     if (is.null(site_fits)) next
 
@@ -293,7 +293,7 @@ ds.semiOPBARTExploreHyperE <- function(conns,
                                         max_configs = NULL,
                                         nfilter = 5,
                                         verbose = TRUE,
-                                        state_name = ".semiOPBART_hyper") {
+                                        state_name = ".semiOPBART_hyper", sd=1) {
 
   if (is.null(conns)) conns <- DSI::datashield.connections_find()
   # ---- FILTER: Only connections with train object ----
@@ -333,7 +333,7 @@ ds.semiOPBARTExploreHyperE <- function(conns,
         num_burn = as.integer(params$n_burn), num_save = as.integer(params$n_samp),
         sync_every=as.integer(params$sync_every),
         warmup_burn = wb, nfilter_threshold = nfilter,
-        state_name = config_state, seed = as.integer(params$seed))
+        state_name = config_state, seed = as.integer(params$seed), sd=sd)
       }, i, "train (ds.semiOPBARTTrainE)")
 
     if (is.null(fit)) next
@@ -415,7 +415,8 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
                                                  combine_method = c(  "inverse_variance", "random_effects", "stack"), #c( "stack", "inverse_variance", "random_effects" ), #c( "random_effects", "stack", "inverse_variance"), #
                                                  max_configs = NULL,
                                                  nfilter =0,# 5,
-                                                 verbose = TRUE) {
+                                                 verbose = TRUE,
+                                                 sd=1) {
 
   combine_method <- match.arg(combine_method)
  #res_F <- NULL
@@ -426,7 +427,7 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
     n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
     seed_range = seed_range, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, combine_method = combine_method, verbose = verbose,
-    state_name = ".semiOPBART_hyper")
+    state_name = ".semiOPBART_hyper", sd=sd)
  
   # combined <- dplyr::bind_rows(res_F$results, NULL, NULL)
   # combined$model <- model_label
@@ -447,7 +448,7 @@ if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local tr
     n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
     seed_range = seed_range,sync_every= sync_every, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, verbose = verbose,
-    state_name = ".semiOPBART_hyper")
+    state_name = ".semiOPBART_hyper", sd=sd)
 
   combined <- dplyr::bind_rows(res_F$results, res_E$results, NULL)
   combined$model <- model_label
@@ -534,7 +535,8 @@ ds.semiOPBARTFitBestAndExternalPredict <- function(
     warmup_burn = 1,
     state_prefix = ".semiOPBART_best_external",
     prediction_name = NULL,
-    verbose = TRUE
+    verbose = TRUE,
+     sd = 1
 ) {
 
   if (is.null(conns)) {
@@ -680,7 +682,8 @@ ds.semiOPBARTFitBestAndExternalPredict <- function(
 
       nfilter_threshold = nfilter,
       state_name = config_state,
-      seed = seed
+      seed = seed,
+       sd = sd
     )
 
   } else {
@@ -720,7 +723,8 @@ ds.semiOPBARTFitBestAndExternalPredict <- function(
 
       nfilter = nfilter,
       state_name = config_state,
-      seed = seed
+      seed = seed,
+       sd = sd
     )
 
     fit <- ds.semiOPBARTCombineF(
@@ -927,6 +931,7 @@ if (is.null(site_names) || !length(site_names)) {
     reference = reference,
     data.name_test = test_data.name,
     outcome_col = outcome_col,
+    levels=levels,
 
     newobj_pred = pred_obj,
     nfilter = nfilter,
