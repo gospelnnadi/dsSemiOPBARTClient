@@ -23,25 +23,6 @@
 #'   model) if more than one is ever trained in the same session, or a
 #'   later run's fit silently overwrites this one at every site
 #' @export
-# ds.semiOPBARTFitF <- function(formula, linear_formula,
-#                               data.name = "semiOPBART_train",
-#                               datasources = NULL,
-#                               num_tree = 20, k = 1,
-#                               num_burn = 1000, num_save = 1000,
-#                               nfilter = 5, state_name = ".semiOPBART_local_fit_F", seed = 35) {
-#   set.seed(seed)
-#   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
-
-#   site_fits <- DSI::datashield.aggregate(datasources,
-#       call("semiOPBARTLocalFitFDS", semiOPBART_toSerialize(deparse1(formula)),
-#            semiOPBART_toSerialize(deparse1(linear_formula)),
-#            data.name, num_tree, k, num_burn, num_save, nfilter, state_name, seed = seed))
-
-#   attr(site_fits, "linear_formula") <- linear_formula
-#   attr(site_fits, "data.name") <- data.name
-#   attr(site_fits, "state_name") <- state_name
-#   site_fits
-# }
 
 ds.semiOPBARTFitF <- function(formula, linear_formula,
                               data.name = "semiOPBART_train",

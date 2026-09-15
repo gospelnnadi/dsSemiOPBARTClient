@@ -123,29 +123,6 @@ ds.semiOPBARTTransform <- function(data.name, outcome_col, levels,
                                     newobj = "semiOPBART_transformed",
                                     nfilter = 5, datasources = NULL) {
   if (is.null(datasources)) datasources <- DSI::datashield.connections_find()
-  # cat("levels Serialize:\n")
-  # cat(semiOPBART_toSerialize(levels), "\n")
-
-  # cat("x_features Serialize:\n")
-  # cat(semiOPBART_toSerialize(x_features), "\n")
-
-  # cat("w_features Serialize:\n")
-  # cat(semiOPBART_toSerialize(w_features), "\n")
-  # cl <- call(
-  #   "semiOPBARTLocalTransformDS",
-  #   data.name,
-  #   outcome_col,
-  #   semiOPBART_toSerialize(levels),
-  #   semiOPBART_toSerialize(x_features),
-  #   semiOPBART_toSerialize(w_features),
-  #   transform_recipe,
-  #   newobj,
-  #   nfilter
-  # )
-
-  # print(cl)
-  # dput(cl)
-  #DSI::datashield.aggregate(datasources, expr)
 
   out <- DSI::datashield.aggregate(datasources,
       call("semiOPBARTLocalTransformDS", data.name, outcome_col,

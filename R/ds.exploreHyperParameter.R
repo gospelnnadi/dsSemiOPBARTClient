@@ -1,6 +1,6 @@
 # dsSemiOPBARTExploreHyperParameter.R
 # ---------------------------------------------------------------------------
-# FEDERATED HYPERPARAMETER EXPLORATION -- Architectures D, E, F
+# FEDERATED HYPERPARAMETER EXPLORATION -- Architectures E, F
 #
 # WHY THIS FILE WAS REWRITTEN
 # ---------------------------------------------------------------------------
@@ -31,8 +31,7 @@
 #                     ds_localCombine.R, ds_trainTest.R)
 #   Architecture E: ds.semiOPBARTTrainE() + ds.semiOPBARTPredictE()
 #                     (ds_semiopbart.R, ds_trainTest.R)
-#   Architecture D: ds.semiOPBARTTrain()  + ds.semiOPBARTPredict()
-#                     (ds_semiopbart.R, ds_trainTest.R)
+ 
 # and evaluation for all three funnels through the SAME disclosure-safe,
 # confusion-matrix-based ds.semiOPBARTEvaluate() (ds_evaluate.R). This
 # file now does nothing but grid-search over that existing machinery,
@@ -428,18 +427,7 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
     seed_range = seed_range, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, combine_method = combine_method, verbose = verbose,
     state_name = ".semiOPBART_hyper", sd=sd)
- 
-  # combined <- dplyr::bind_rows(res_F$results, NULL, NULL)
-  # combined$model <- model_label
-  # 
-  # list(
-  #   combined_results = combined,
-  #   by_architecture = list(F = res_F),
-  #   best_overall = combined[which.min(combined$test_mae), ],
-  #   best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
-  #     d[which.min(d$test_mae), ]
-  #   }))
-  # )
+
 
 if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local trees)", model_label))
   res_E <- ds.semiOPBARTExploreHyperE(
@@ -461,28 +449,6 @@ if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local tr
       d[which.min(d$test_mae), ]
     }))
   )
-
-  # if (verbose) message(sprintf(">>> %s: Architecture D (tree swapping + theta/us pooling)", model_label))
-  # res_D <- ds.semiOPBARTExploreHyperD(
-  #   conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
-  #   x_features = x_features, w_features = w_features, test_data.name = test_data.name,
-  #   n_samp_range = n_samp_range, n_burn_range = n_burn_range, n_tree_range = n_tree_range,
-  #   seed_range = seed_range, k_values = k_values, n_swap_range = n_swap_range,
-  #   max_configs = max_configs, nfilter = nfilter, verbose = verbose,
-  #   state_name = ".semiOPBART_hyper")
-  #
-  # combined <- dplyr::bind_rows(res_F$results, res_E$results, res_D$results)
-  # combined$model <- model_label
-  #
-  # list(
-  #   combined_results = combined,
-  #   by_architecture = list(F = res_F, E = res_E, D = res_D),
-  #   best_overall = combined[which.min(combined$test_mae), ],
-  #   best_by_architecture = do.call(rbind, lapply(split(combined, combined$architecture), function(d) {
-  #     d[which.min(d$test_mae), ]
-  #   }))
-  # )
-
 
 }
 
@@ -826,8 +792,7 @@ if (is.null(site_names) || !length(site_names)) {
     reference_site = reference_site,
     datasources = trainable_conns
   )
-# print("reference")
-# print(reference)
+
   # ---------------------------------------------------------------
   # 8. Select normalization reference
   #
