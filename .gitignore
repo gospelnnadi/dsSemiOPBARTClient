@@ -1,4 +1,63 @@
-.Rproj.user
+.Ruserdata
+# R generated files
 .Rhistory
 .RData
 .Ruserdata
+.Rproj.user/
+
+# R package build/check artifacts
+*.tar.gz
+*.Rcheck/
+.Rcheck/
+
+
+# RStudio project files
+*.Rproj
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local data / sensitive files
+*.csv
+*.xlsx
+*.xls
+*.sav
+*.dta
+*.sas7bdat
+*.rds
+*.RData
+
+# But allow package test/example data if you intentionally commit them
+!tests/testthat/*.rds
+!data/*.rda
+!data/*.RData
+
+# Environment / secrets
+.Renviron
+.env
+.env.*
+!.env.example
+
+# Credentials / certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Quarto / R Markdown generated output
+*_cache/
+*_files/
+
+# pkgdown generated website
+docs/
+
+# Coverage output
+coverage/
