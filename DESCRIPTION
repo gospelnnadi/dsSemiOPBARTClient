@@ -15,8 +15,14 @@ Authors@R:
              email="mdrra-univr@univr.it"))
 Maintainer: Gospel Ozioma Nnadi <gospelozioma.nnadi@univr.it>
 Description: dsSemiOPBARTClient - Federated Semi Opbit Bayesian Addictive Regression Tree Learning on DataSHIELD.
-Depends: R (>= 3.5)
+Depends: 
+       R (>= 3.5)
+       DSI (>= 1.4.0),
+       dsBaseClient (>= 6.2.0)
 Encoding: UTF-8
 LazyData: true
 License: GPL-3
 Config/roxygen2/version: 8.1.0
+Import:
+       utils,
+       ggplot2
