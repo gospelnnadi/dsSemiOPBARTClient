@@ -405,7 +405,7 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
   levels = levels, remove_classes_below = remove_classes_below,
      newobj = removed_newobj,  datasources = datasources
   )
-  if (rare_result$per_site != NULL){
+  if (rare_result$per_site == NULL){
     transform_data_name <- data.name
   }
   else{
