@@ -414,10 +414,12 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
                                                  combine_method = c(  "inverse_variance", "random_effects", "stack"), #c( "stack", "inverse_variance", "random_effects" ), #c( "random_effects", "stack", "inverse_variance"), #
                                                  max_configs = NULL,
                                                  nfilter =0,# 5,
+                                                 architecture=c("F", "E"),
                                                  verbose = TRUE,
                                                  sd=1) {
 
   combine_method <- match.arg(combine_method)
+  if ("F" %in% architecture ){
  #res_F <- NULL
   if (verbose) message(sprintf(">>> %s: Architecture F (independent local fits)", model_label))
   res_F <- ds.semiOPBARTExploreHyperF(
@@ -427,8 +429,14 @@ ds.semiOPBARTExploreHyperparameters <- function(model_label,
     seed_range = seed_range, k_values = k_values, max_configs = max_configs,
     nfilter = nfilter, combine_method = combine_method, verbose = verbose,
     state_name = ".semiOPBART_hyper", sd=sd)
+    res_F_results <- res_F$results
+  }
+  else{
+    res_F_results <- NULL
+    res_F <- NULL
 
-
+  }
+if ("E" %in% architecture ){
 if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local trees)", model_label))
   res_E <- ds.semiOPBARTExploreHyperE(
     conns = conns, data.name = data.name, outcome_col = outcome_col, levels = levels,
@@ -438,7 +446,14 @@ if (verbose) message(sprintf(">>> %s: Architecture E (theta/us pooling, local tr
     nfilter = nfilter, verbose = verbose,
     state_name = ".semiOPBART_hyper", sd=sd)
 
-  combined <- dplyr::bind_rows(res_F$results, res_E$results, NULL)
+    res_E_results <- res_E$results
+}
+  else{
+    res_E_results <- NULL
+    res_E <- NULL
+
+  }
+  combined <- dplyr::bind_rows(res_F_results, res_E_results)
   combined$model <- model_label
 
   list(
