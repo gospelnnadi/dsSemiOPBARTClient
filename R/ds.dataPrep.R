@@ -405,9 +405,15 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
   levels = levels, remove_classes_below = remove_classes_below,
      newobj = removed_newobj,  datasources = datasources
   )
-  transform_data_name <- removed_newobj
+  if !is.na(rare_result$per_site){
+    transform_data_name <- removed_newobj
   # use the levels that survived the pooled filtering
   levels <- rare_result$updated_levels
+  }
+  else{
+      transform_data_name <- data.name
+  }
+  
 } else {
   rare_result <- NULL
   transform_data_name <- data.name
@@ -676,6 +682,7 @@ if (length(remove_levels) == 0L) {
 
   # Nothing to remove. Keep the original object.
   per_site <- NULL
+
 
 } else {
 
