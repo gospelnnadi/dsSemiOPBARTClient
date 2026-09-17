@@ -400,11 +400,12 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
       "`remove_classes_below` must be supplied when ",
       "`remove_rare_classes = TRUE`."
     )
-
+  message("`remove_rare_classes = TRUE`.")
   rare_result <- ds.semiOPBARTRemoveRareClasses( data.name = data.name, outcome_col = outcome_col, 
   levels = levels, remove_classes_below = remove_classes_below,
      newobj = removed_newobj,  datasources = datasources
   )
+  print(paste("rare number of classes removed = ", rare_result$removed_classes))
   if ( length(rare_result$removed_classes) == 0L){
     transform_data_name <- data.name
   }else{
