@@ -385,6 +385,7 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
                                   nfilter = 5, datasources = NULL,    
                                   remove_rare_classes = TRUE,#FALSE,
                                   remove_classes_below = 15,# NULL,
+                                  removed_newobj = "semiOPBART_filtered",
                                   balance_classes = FALSE,
                                   balance_target = 5
                                   ) {
@@ -402,9 +403,9 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
 
   rare_result <- ds.semiOPBARTRemoveRareClasses( data.name = data.name, outcome_col = outcome_col, 
   levels = levels, remove_classes_below = remove_classes_below,
-     newobj = "semiOPBART_filtered",  datasources = datasources
+     newobj = removed_newobj,  datasources = datasources
   )
-  transform_data_name <- "semiOPBART_filtered"
+  transform_data_name <- removed_newobj
   # use the levels that survived the pooled filtering
   levels <- rare_result$updated_levels
 } else {
