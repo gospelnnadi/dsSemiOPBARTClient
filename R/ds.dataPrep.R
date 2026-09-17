@@ -405,7 +405,8 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
   levels = levels, remove_classes_below = remove_classes_below,
      newobj = removed_newobj,  datasources = datasources
   )
-  print(paste("rare number of classes removed = ", rare_result$removed_classes))
+  cat("Rare number of classes removed =", 
+    length(rare_result$removed_classes), "\n")
   if ( length(rare_result$removed_classes) == 0L){
     transform_data_name <- data.name
   }else{
