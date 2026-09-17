@@ -661,16 +661,35 @@ ds.semiOPBARTRemoveRareClasses <- function(
   ]
 
   # Remove rare classes at every site
+  # per_site <- DSI::datashield.aggregate(
+  #   datasources,
+  #   call(
+  #     "semiOPBARTLocalRemoveClassesDS",
+  #     data.name,
+  #     outcome_col,
+  #     remove_levels,
+  #     newobj
+  #   )
+  # )
+  # Remove rare classes at every site
+if (length(remove_levels) == 0L) {
+
+  # Nothing to remove. Keep the original object.
+  per_site <- NULL
+
+} else {
+
   per_site <- DSI::datashield.aggregate(
     datasources,
     call(
       "semiOPBARTLocalRemoveClassesDS",
       data.name,
       outcome_col,
-      remove_levels,
+      semiOPBART_toSerialize(remove_levels),
       newobj
     )
   )
+}
 
   list(
     global_counts = global_counts,
