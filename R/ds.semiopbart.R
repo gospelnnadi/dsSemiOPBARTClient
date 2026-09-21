@@ -309,6 +309,7 @@ ds.semiOPBARTVarImportance <- function(fit, datasources = NULL, weight_by_n = TR
 #' @param train.name  name of the training object to check for
 #' @param verbose  print exclusion messages
 #' @return list of connections that have the train object
+#' @export
 .filter_trainable_connections <- function(conns, train.name = "D_train", 
                                            verbose = TRUE) {
   if (is.null(conns)) {

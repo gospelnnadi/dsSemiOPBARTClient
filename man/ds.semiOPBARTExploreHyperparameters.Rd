@@ -27,6 +27,7 @@ ds.semiOPBARTExploreHyperparameters(
   combine_method = c("inverse_variance", "random_effects", "stack"),
   max_configs = NULL,
   nfilter = 0,
+  architecture = c("F", "E"),
   verbose = TRUE,
   sd = 1
 )

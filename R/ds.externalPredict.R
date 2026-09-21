@@ -631,7 +631,34 @@ DSI::datashield.aggregate(
 
 }
 
+#' @export
+ds.semiOPBARTsetExternalPredictedHoldout <- function(
+    data.name,
+    holdout.name,
+    predicted_col = "predicted",
+    newobj = "semiOPBART_dfPred",
+    nfilter = 5,
+    datasources = NULL
+) {
 
+  if (is.null(datasources)) {
+    datasources <- datashield.connections_find()
+  }
+
+  res <- DSI::datashield.aggregate(
+    conns = datasources,
+    expr = call(
+      "semiOPBARTsetExternalPredictedHoldoutDS",
+      as.symbol(data.name),
+      as.symbol(holdout.name),
+      predicted_col,
+      newobj,
+      nfilter
+    )
+  )
+
+  invisible(res)
+}
 
 
 # #' Pull ONE already-trained site's own current forest, to be shipped

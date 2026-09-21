@@ -28,6 +28,7 @@ ds.semiOPBARTPrepare(
   datasources = NULL,
   remove_rare_classes = TRUE,
   remove_classes_below = 15,
+  removed_newobj = "semiOPBART_filtered",
   balance_classes = FALSE,
   balance_target = 5
 )

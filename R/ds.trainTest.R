@@ -84,10 +84,11 @@ ds.semiOPBARTPredictE <- function(fit, data.name_test,
   theta_arg <- if (prediction_method == "draws") fit$theta_draws else fit$theta_mean
   us_arg    <- if (prediction_method == "draws") fit$us_draws    else fit$us_mean
 
-  DSI::datashield.aggregate(datasources,
+  result <-DSI::datashield.aggregate(datasources,
       call("semiOPBARTLocalPredictEDS", semiOPBART_toSerialize(theta_arg),
            semiOPBART_toSerialize(us_arg), data.name_test, newobj_pred, nfilter,
            fit$state_name %||% ".semiOPBART_state", seed = seed))
+     result 
 }
 
 #' Predict at one or more sites using Architecture F's model (from
@@ -111,10 +112,11 @@ ds.semiOPBARTPredictF <- function(combined, data.name_test, outcome_col,
          "never-trained-site prediction path. Drop these from `datasources`, ",
          "or have them run ds.semiOPBARTFitF() first.")
 
-  DSI::datashield.aggregate(datasources,
+  result <- DSI::datashield.aggregate(datasources,
       call("semiOPBARTLocalPredictFDS", semiOPBART_toSerialize(combined$theta),
            semiOPBART_toSerialize(combined$us), data.name_test, outcome_col,
            newobj_pred, nfilter, combined$state_name %||% ".semiOPBART_local_fit_F", seed = seed))
+result
 }
 
 
