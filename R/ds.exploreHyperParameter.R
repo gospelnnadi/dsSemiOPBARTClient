@@ -919,7 +919,7 @@ if (is.null(site_names) || !length(site_names)) {
     datasources = external_conns,
     seed = seed
   )
-
+  print("ds.semiOPBARTPredictExternal() returned")
   # ---------------------------------------------------------------
   # 12. Evaluate only when validation_col is supplied
   # ---------------------------------------------------------------
