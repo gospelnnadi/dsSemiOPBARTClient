@@ -508,6 +508,7 @@ ds.semiOPBARTFitBestAndExternalPredict <- function(
     test_data.name,
     outcome_col,
     validation_col = NULL,
+    validation_data.name = NULL,
     levels = 0:4,
     x_features = NULL,
     w_features = NULL,
@@ -934,6 +935,8 @@ if (is.null(site_names) || !length(site_names)) {
     evaluation <- ds.semiOPBARTEvaluate(
       pred_obj = pred_obj,
       levels = levels,
+      validation_col = validation_col,
+      validation_data.name = validation_data.name,
       nfilter = nfilter,
       datasources = external_conns,
       label = paste0(
