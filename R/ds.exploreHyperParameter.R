@@ -927,8 +927,8 @@ if (is.null(site_names) || !length(site_names)) {
 
   evaluation <- NULL
   #TODO: This is a bit of a hack. The prediction_result object should contain the truth column if it was supplied, but we also want to check if validation_col was supplied to this function. If both are present, we run evaluation.
-  if ((!is.null(validation_col) && !is.null(prediction_result$truth)) || (!is.null(validation_col) && !is.null(validation_data.name))) {
-
+  if ((!is.null(validation_col) || !is.null(prediction_result$truth))) {
+    print("Running evaluation test site prediction")
     # The server-side prediction object already contains truth.
     # validation_col is retained here as the explicit indication that
     # validation/evaluation was requested.

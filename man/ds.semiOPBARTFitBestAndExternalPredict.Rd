@@ -12,6 +12,7 @@ ds.semiOPBARTFitBestAndExternalPredict(
   test_data.name,
   outcome_col,
   validation_col = NULL,
+  validation_data.name = NULL,
   levels = 0:4,
   x_features = NULL,
   w_features = NULL,

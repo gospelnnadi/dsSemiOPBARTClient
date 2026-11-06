@@ -13,6 +13,7 @@ ds.semiOPBARTPrepare(
   levels,
   x_features,
   w_features,
+  validation_col = NULL,
   transform_recipe = "none",
   normalize_method = c("local_ecdf", "federated_ecdf"),
   known_range = NULL,

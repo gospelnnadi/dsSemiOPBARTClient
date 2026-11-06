@@ -119,6 +119,7 @@ ds.semiOPBARTClearState <- function(run_tag = NULL, datasources = NULL) {
 #' @export
 ds.semiOPBARTTransform <- function(data.name, outcome_col, levels,
                                     x_features, w_features,
+                                    validation_col = NULL,
                                     transform_recipe = "none",
                                     newobj = "semiOPBART_transformed",
                                     nfilter = 5, datasources = NULL) {
@@ -127,7 +128,7 @@ ds.semiOPBARTTransform <- function(data.name, outcome_col, levels,
   out <- DSI::datashield.aggregate(datasources,
       call("semiOPBARTLocalTransformDS", data.name, outcome_col,
            semiOPBART_toSerialize(levels), semiOPBART_toSerialize(x_features),
-           semiOPBART_toSerialize(w_features), transform_recipe, newobj, nfilter))
+           semiOPBART_toSerialize(w_features), validation_col, transform_recipe, newobj, nfilter))
 
   x_col_sets <- lapply(out, `[[`, "x_cols")
   if (length(unique(x_col_sets)) > 1)
@@ -374,6 +375,7 @@ ds.semiOPBARTNormalizeSplit <- function(train.name = "semiOPBART_train",
 #' @export
 ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
                                   x_features, w_features,
+                                   validation_col = NULL,
                                   transform_recipe = "none",
                                   normalize_method = c("local_ecdf", "federated_ecdf"),
                                   known_range = NULL, num_ecdf_bins = 30,
@@ -423,11 +425,12 @@ ds.semiOPBARTPrepare <- function(data.name, outcome_col, levels,
   #                         transform_recipe, newobj = "semiOPBART_transformed",
   #                         nfilter = nfilter, datasources = datasources)
   ds.semiOPBARTTransform(transform_data_name, outcome_col, levels, x_features, w_features,
+                          validation_col = validation_col,
                           transform_recipe, newobj = "semiOPBART_transformed",
                           nfilter = nfilter, datasources = datasources)
   print("ds.semiOPBARTPrepare(): transform complete, now splitting train/test/holdout...")
   split_plan <- ds.semiOPBARTSplit(
-      data.name = "semiOPBART_transformed", outcome_col = outcome_col,
+      data.name = "semiOPBART_transformed", outcome_col = outcome_col, 
       site_roles = site_roles, train_ratio = train_ratio, seed = seed,
       newobj_train = newobj_train, newobj_test = newobj_test,
       newobj_holdout = newobj_holdout, nfilter = nfilter, datasources = datasources,levels,
